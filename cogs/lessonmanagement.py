@@ -83,7 +83,7 @@ class ClassManagement(commands.Cog):
 
         # starts to chat with teacher to manage the classes stuff
         if payload.emoji.name == self.classmanagement_emoji:
-            print('entrou no emoji')
+            # print('entrou no emoji')
 
             await self.handle_teacher_request(payload)
         # elif :
@@ -134,7 +134,7 @@ class ClassManagement(commands.Cog):
 
 
     async def handle_teacher_request(self, payload) -> None:
-        print('entrei no teacher request!')
+        # print('entrei no teacher request!')
 
         member = payload.member
 
@@ -164,16 +164,19 @@ class ClassManagement(commands.Cog):
         zeroth_msg = await member.send('Starting class management...')
         dm_ctx = await self.client.get_context(zeroth_msg)
 
-        pprint(dm_ctx.__dict__)
-        pprint(dm_ctx.author)
-        res = await ClassManagementMenuTeacher(dm_ctx, zeroth_msg, member).begin()
+        # pprint(dm_ctx.__dict__)
+        # pprint(dm_ctx.author)
+        try:
+            res = await ClassManagementMenuTeacher(dm_ctx, zeroth_msg, member).begin()
+        except:
+            PrintException()
 
     @commands.command(hidden=True)
     async def teste_bagunca(self, ctx) -> None:
         ''' (ADM) Empties Class Management Channel and inserts embeds. '''
 
-        pprint(ctx.__dict__)
-        pprint(ctx.author)
+        # pprint(ctx.__dict__)
+        # pprint(ctx.author)
         confirm = await ConfirmSkill('nada não').prompt(ctx)
 
 
@@ -277,171 +280,6 @@ class ClassManagement(commands.Cog):
         table_info = await mycursor.fetchall()
         await mycursor.close()
         return table_info
-
-
-class ClassManagementMenuTeacher(menus.Menu):
-    ''' Class related to Class Management actions done by teachers '''
-
-    # adicao
-    # remocao
-    # pausa
-    # alteracao de horario
-
-    reaction_check = dm_reaction_check
-
-    def __init__(self, ctx: discord.ext.commands.Context, msg: discord.Message, member: discord.Member):
-    # def __init__(self, msg: discord.Message, member: discord.Member):
-        super().__init__(timeout=60,delete_message_after=False,clear_reactions_after=True)
-        self.member = member
-        # self.content = content
-        self.msg = msg
-        self.ctx = ctx
-        self.result = None
-        self.changes = {}
-        self.current_classes = {}
-
-
-    async def begin(self):
-        await self.start(self.ctx, wait=True)
-        # await self.start(self.ctx)
-        return self.result
-
-
-    async def send_initial_message(self, ctx, channel):
-
-        embed = discord.Embed(
-            title="**You called me in the class management channel.**",
-            description="What do you want to do?\n\nYour current schedule is:",
-            color=discord.Colour.from_rgb(234,72,223)
-        )
-        await self.teacher_classes_overview_embed(embed)
-
-        self.button_descriptions_embed(embed)
-
-        # self.msg = await channel.send(embed=embed)
-        # self.msg2 = await channel.send(embed=embed)
-        await self.msg.edit(content=None, embed=embed)
-
-        return self.msg
-
-
-    async def teacher_classes_overview_embed(self, embed):
-
-        classes = await TeacherDB.get_teacher_classes(self.member.id)
-        self.current_classes = classes
-        pprint(classes)
-
-        if classes is None:
-            embed.add_field(
-                name=':calendar_spiral: You have no classes registered!',
-                value='Please ask lesson management to work with it out',
-                inline=False
-            )
-            return embed
-
-        embed.add_field(
-            name=':calendar_spiral: Permament classes',
-            value=classes['permanent'],
-            inline=False
-        )
-        embed.add_field(
-            name=':calendar_spiral: Extra classes',
-            value=classes['extra'],
-            inline=False
-        )
-
-        return embed
-
-
-    def button_descriptions_embed(self, embed):
-        embed.set_footer(
-            text='\U0001F4E5 add a class\t\U0001F4E4 remove a class\n\U0001F4C5 edit a class\t\U000023F0 pause classes'
-        )
-        return embed
-
-
-    async def finalize(self, timeout):
-
-        embed = discord.Embed(
-            title="**Thank you for teaching!**",
-            description="Your requests, if any, were sent to the Lesson Management Team!\n\nYour latest schedule is:",
-            color=discord.Colour.from_rgb(234,72,223)
-        )
-        await self.teacher_classes_overview_embed(embed)
-
-        await self.changes_done(embed)
-        # self.button_descriptions_embed(embed)
-
-        # self.msg = await channel.send(embed=embed)
-        await self.msg.edit(content=None, embed=embed)
-
-
-    async def changes_done(self, embed):
-        yes   = ":white_check_mark:"
-        no    = ":x:"
-        maybe = ":hourglass:"
-        yesno   = [no, yes]
-        maybeno = [no, maybe]
-
-        changes_str = '\n'.join(
-            [f'[{maybeno[x.status]}]: {x}' for x in self.changes['add']]+
-            [f'[{maybeno[x.status]}]: {x}' for x in self.changes['edit']]+
-            [f'[{yesno[x.status]}]: {x}' for x in self.changes['removal']]+
-            [f'[{yesno[x.status]}]: {x}' for x in self.changes['pause']]
-        )
-
-        embed.add_field(
-            name=':notebook_with_decorative_cover: Changes',
-            values=changes_str,
-            inline=False
-        )
-
-        pass
-
-
-    # adicao - needs approval
-    @menus.button('\U0001F4E5')
-    async def do_add(self, payload):
-        print('Entrei  no do addd')
-        # self.show_available_slots(payload)
-        languages = await TeacherDB.get_taught_languages()
-        pprint(languages)
-        print('Entrei no button do add')
-
-        try:
-            self.changes['add'] = await ClassManagementMenuTeacherAdd(self.ctx, self.msg, self.member, self.current_classes, languages).begin()
-        except Exception as e:
-            print('Na hora de criar o menuteacheradd, da esse erro aqui: ',e)
-            PrintException()
-        print('recebi resposta do ClassManagementMenuAdd')
-        pass
-
-    # alteracao de horario - needs approval
-    @menus.button('\U0001F4C5')
-    async def do_edit(self, payload):
-        pass
-
-    # remocao - no approval
-    @menus.button('\U0001F4E4')
-    async def do_remove(self, payload):
-        pass
-
-    # pausa - no approval
-    @menus.button('\U000023F0')
-    async def do_pause(self, payload):
-        pprint(payload)
-        pass
-
-    # finalise
-    @menus.button('\U0001F44B')
-    async def do_stop(self, payload):
-        pprint(payload)
-        # print(payload.member)
-        # await self.msg.edit(content=None)
-        self.stop()
-
-        pass
-
 
 
 
