@@ -57,12 +57,6 @@ class ClassManagementMenuTeacher(menus.MenuPages):
         self.back_status = []
         print(self.source)
 
-        # self.go_to_first_page.__menu_button__.skip_if = self._skip_pagination
-        # self.go_to_previous_page.__menu_button__.skip_if = self._skip_pagination
-        # self.go_to_next_page.__menu_button__.skip_if = self._skip_pagination
-        # self.go_to_last_page.__menu_button__.skip_if = self._skip_pagination
-        # self.stop_pages.__menu_button__.skip_if = self._skip_pagination
-
 
     async def begin(self):
         await self.start(self.ctx, wait=True)
@@ -105,18 +99,44 @@ class ClassManagementMenuTeacher(menus.MenuPages):
         return embed
 
 
-    async def set_buttons(self, emojis, callbacks):
-        for i,j in zip(emojis, callbacks):
-            try:
-                # if self.__tasks:
-                await self.add_button(button=menus.Button(i, j), react=True)
-                # else:
-                    # self.add_button(button=menus.Button(i, j), react=False)
-            except:
-                PrintException()
-                print(i,j)
-                self.add_button(button=menus.Button(i, j), react=False)
-            # self.__tasks
+    # async def set_buttons(self, emojis, callbacks):
+    #     for i,j in zip(emojis, callbacks):
+    #         try:
+    #             # if self.__tasks:
+    #             await self.add_button(button=menus.Button(i, j), react=True)
+    #             # else:
+    #                 # self.add_button(button=menus.Button(i, j), react=False)
+    #         except:
+    #             PrintException()
+    #             print(i,j)
+    #             self.add_button(button=menus.Button(i, j), react=False)
+    #         # self.__tasks
+
+    async def update_buttons(self, mode):
+        mb = lambda x, e=True: {y.__menu_button__ for y in x if e}
+        mf = lambda x, e=True: {y for y in x if e}
+
+        pag_btns = mf([self.go_to_first_page, self.go_to_previous_page, self.go_to_next_page, self.go_to_last_page], len(self.languages))
+
+        self.btns = {
+            'main': {self.do_add, self.do_edit, self.do_remove, self.do_pause, self.do_stop},
+            'add': {self.do_stop} | pag_btns,
+            'edit': {},
+            'remove': {},
+            'pause': {}
+        }
+
+        # __menu_button__
+        rem = set(self.buttons.keys())-mb(self.btns[mode])
+        add = self.btns[mode]-set(self.buttons.items())
+        for btn in rem:
+            print(btn, 'rem')
+            await self.remove_button(btn, react=True)
+        for btn, emj in zip(add,mb(add)):
+            print(btn, emj, 'add')
+            await self.add_button(menus.Button(emj, btn), react=True)
+
+        pass
 
 
     # =================================
@@ -160,10 +180,12 @@ class ClassManagementMenuTeacher(menus.MenuPages):
         await self.show_page(self._source.get_max_pages() - 1)
 
     # @menus.button('\N{BLACK SQUARE FOR STOP}\ufe0f', position=Last(2), skip_if=_skip_pagination)
-    @menus.button('\N{BLACK SQUARE FOR STOP}\ufe0f', skip_if=_skip_pagination)
+    # @menus.button('\N{BLACK SQUARE FOR STOP}\ufe0f', skip_if=_skip_pagination)
+    @menus.button('\N{BLACK SQUARE FOR STOP}\ufe0f', skip_if=lambda x: True)
     async def stop_pages(self, payload):
         """stops the pagination session."""
-        self.stop()
+        # self.stop()
+        pass
 
 
     # =================================
@@ -261,7 +283,7 @@ class ClassManagementMenuTeacher(menus.MenuPages):
         pass
 
     # finalise
-    @menus.button('\U0001F44B')
+    @menus.button('\U0001F44B', skip_if=_skip_main)
     async def do_stop(self, payload):
         if len(self.back_status):
             self.back_status[-1]()
@@ -274,13 +296,17 @@ class ClassManagementMenuTeacher(menus.MenuPages):
     # =================================
 
     async def add_menu(self):
-        await self.clear_buttons(react=True)
+        try:
+            await self.update_buttons('add')
+        except:
+            PrintException()
+
         self.back_status.append(self.main_menu)
 
-        languages = await TeacherDB.get_taught_languages()
+        self.languages = await TeacherDB.get_taught_languages()
 
         embed = self.add_menu_embed()
-        src  = ListTaughtLanguages(languages, embed)
+        src  = ListTaughtLanguages(self.languages, embed)
         await self.change_source(src)
 
 
