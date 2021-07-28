@@ -1,5 +1,7 @@
 import discord
 from discord.ext import commands, menus, tasks
+from discord.ui import View, Button, Select
+from discord.ext import commands, tasks
 from extra.teacherDB import TeacherDB
 
 from mysqldb import *
@@ -7,6 +9,7 @@ import asyncio
 
 import linecache
 import sys
+import os
 from pprint import pprint
 
 def PrintException():
@@ -19,63 +22,30 @@ def PrintException():
     print('EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj))
 
 
-def dm_reaction_check(self, payload):
-    # allowing to process only reactions from the msg author
-    if payload.message_id != self.message.id or payload.user_id == self.msg.author.id:
-        return False
-    # removing the condition below from original code, bc
-    # it prevents from working inside DMs when the message
-    # didn't come from a Command
-    # if payload.user_id not in {self.bot.owner_id, self._author_id, *self.bot.owner_ids}:
-        # return False
-
-    return payload.emoji in self.buttons
+class_management_channel_id = int(os.getenv('CLASS_MANAGEMENT_CHANNEL_ID'))
+class_management_approval_channel_id = int(os.getenv('CLASS_MANAGEMENT_APPROVAL_CHANNEL_ID'))
+# teacher_role_id = int(os.getenv('TEACHER_ROLE_ID'))
+# report_channel_id = int(os.getenv('REPORT_CHANNEL_ID'))
 
 
-class ClassManagementMenuTeacher(menus.MenuPages):
-    ''' Class related to Class Management actions done by teachers '''
 
-    reaction_check = dm_reaction_check
+class ChannelLessonManagementView(View):
 
-    # def prepare(self):
-        # self.override_skip_pagination()
-
-    def __init__(self, ctx: discord.ext.commands.Context, msg: discord.Message, member: discord.Member):
-    # def __init__(self, msg: discord.Message, member: discord.Member):
-        try:
-            super().__init__(source=ListTaughtLanguages(),timeout=60,delete_message_after=False,clear_reactions_after=True)
-        except:
-            PrintException()
-        self.member = member
-        # self.content = content
-        self.msg = msg
-        self.ctx = ctx
-        self.result = None
-        self.changes = {}
-        self.current_classes = {}
-        self.languages = []
-        self.back_status = []
-        print(self.source)
+    def __init__(self, client):
+        super().__init__(timeout=None)
+        self.client = client
+        pass
 
 
-    async def begin(self):
-        await self.start(self.ctx, wait=True)
-        # await self.main_menu()
-        return self.result
+    async def teacher_classes_overview_embed(self, member):
 
-    def should_add_reactions(self):
-        return True
+        classes = await TeacherDB.get_teacher_classes(member.id)
 
-
-    # ============================
-    #    Misc
-    # ============================
-
-    async def teacher_classes_overview_embed(self, embed):
-
-        classes = await TeacherDB.get_teacher_classes(self.member.id)
-        self.current_classes = classes
-        # pprint(classes)
+        embed = discord.Embed(
+            title="**Your current schedule is:**",
+            description="",
+            color=discord.Colour.from_rgb(234,72,223)
+        )
 
         if classes is None:
             embed.add_field(
@@ -99,359 +69,404 @@ class ClassManagementMenuTeacher(menus.MenuPages):
         return embed
 
 
-    # async def set_buttons(self, emojis, callbacks):
-    #     for i,j in zip(emojis, callbacks):
-    #         try:
-    #             # if self.__tasks:
-    #             await self.add_button(button=menus.Button(i, j), react=True)
-    #             # else:
-    #                 # self.add_button(button=menus.Button(i, j), react=False)
-    #         except:
-    #             PrintException()
-    #             print(i,j)
-    #             self.add_button(button=menus.Button(i, j), react=False)
-    #         # self.__tasks
+    @discord.ui.button(
+        style=discord.ButtonStyle.green,
+        label='New class',
+        disabled=False,
+        custom_id='clmv_new_class',
+        emoji='\U0001F4E5',
+        row=0
+    )
+    async def new_class(self, btn: Button, interaction: discord.Interaction):
+        ''' Handles Class Management related . '''
 
-    async def update_buttons(self, mode):
-        mb = lambda x, e=True: {y.__menu_button__ for y in x if e}
-        mf = lambda x, e=True: {y for y in x if e}
-
-        pag_btns = mf([self.go_to_first_page, self.go_to_previous_page, self.go_to_next_page, self.go_to_last_page], len(self.languages))
-
-        self.btns = {
-            'main': {self.do_add, self.do_edit, self.do_remove, self.do_pause, self.do_stop},
-            'add': {self.do_stop} | pag_btns,
-            'edit': {},
-            'remove': {},
-            'pause': {}
-        }
-
-        # __menu_button__
-        rem = set(self.buttons.keys())-mb(self.btns[mode])
-        add = self.btns[mode]-set(self.buttons.items())
-        for btn in rem:
-            print(btn, 'rem')
-            await self.remove_button(btn, react=True)
-        for btn, emj in zip(add,mb(add)):
-            print(btn, emj, 'add')
-            await self.add_button(menus.Button(emj, btn), react=True)
-
-        pass
+        if not interaction.guild_id or not interaction.user or \
+            interaction.user.bot:
+            return
 
 
-    # =================================
-    #   overriding pagination skip_if
-    # =================================
+        # member = payload.member
+        member = interaction.user
 
-    def _skip_pagination(self):
-        return not len(self.back_status)
+        embed = await self.teacher_classes_overview_embed(member)
+        languages = await TeacherDB.get_taught_languages()
+        # view = AddLessonView(languages)
 
-    def _skip_double_triangle_buttons(self):
-        max_pages = self._source.get_max_pages()
-        if max_pages is None:
-            return True
-        return max_pages <= 2 and self._skip_pagination()
-
-    @menus.button('\N{BLACK LEFT-POINTING DOUBLE TRIANGLE WITH VERTICAL BAR}\ufe0f',
-            # position=First(0), skip_if=_skip_pagination)
-            skip_if=_skip_pagination)
-    async def go_to_first_page(self, payload):
-        """go to the first page"""
-        await self.show_page(0)
-
-    # @menus.button('\N{BLACK LEFT-POINTING TRIANGLE}\ufe0f', position=First(1), skip_if=_skip_pagination)
-    @menus.button('\N{BLACK LEFT-POINTING TRIANGLE}\ufe0f', skip_if=_skip_pagination)
-    async def go_to_previous_page(self, payload):
-        """go to the previous page"""
-        await self.show_checked_page(self.current_page - 1)
-
-    # @menus.button('\N{BLACK RIGHT-POINTING TRIANGLE}\ufe0f', position=Last(0), skip_if=_skip_pagination)
-    @menus.button('\N{BLACK RIGHT-POINTING TRIANGLE}\ufe0f', skip_if=_skip_pagination)
-    async def go_to_next_page(self, payload):
-        """go to the next page"""
-        await self.show_checked_page(self.current_page + 1)
-
-    @menus.button('\N{BLACK RIGHT-POINTING DOUBLE TRIANGLE WITH VERTICAL BAR}\ufe0f',
-            # position=Last(1), skip_if=_skip_pagination)
-            skip_if=_skip_pagination)
-    async def go_to_last_page(self, payload):
-        """go to the last page"""
-        # The call here is safe because it's guarded by skip_if
-        await self.show_page(self._source.get_max_pages() - 1)
-
-    # @menus.button('\N{BLACK SQUARE FOR STOP}\ufe0f', position=Last(2), skip_if=_skip_pagination)
-    # @menus.button('\N{BLACK SQUARE FOR STOP}\ufe0f', skip_if=_skip_pagination)
-    @menus.button('\N{BLACK SQUARE FOR STOP}\ufe0f', skip_if=lambda x: True)
-    async def stop_pages(self, payload):
-        """stops the pagination session."""
-        # self.stop()
-        pass
+        states = {}
+        view = AddLessonView(states, embed, self.client, ['pt','en','de'])
 
 
-    # =================================
-    #   main menu
-    # =================================
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    async def send_initial_message(self, ctx, channel):
-        await self.main_menu()
-        return self.msg
+        # if member.guild.id != server_id:
+        #     await member.send(embed=discord.Embed(
+        #     title='You\'re not allowed to do it!',
+        #     description='In order to do that, you have first to become a member of [The Language Sloth Server](https://discord.gg/Dr9EkQph)!',
+        #     color=discord.Colour.from_rgb(0,0,0)
+        #     ))
+        #     return
+        # print('passei guild id')
 
-    async def finalize(self, timeout):
+        # if teacher_role_id not in [x.id for x in member.roles]:
+        #     await member.send(embed=discord.Embed(
+        #         title='You\'re not allowed to do that!',
+        #         description='In order to do that, you have to be a Teacher.',
+        #         color=discord.Colour.from_rgb(0,0,0)
+        #     ).add_field(
+        #         name='Apply to become a Teacher',
+        #         value=f'Apply in the channel <#{report_channel_id}>'
+        #     ))
+        #     return
+        print('passei teacher_role_id')
 
-        embed = discord.Embed(
-            title="**Thank you for teaching!**",
-            description="Your requests, if any, were sent to the Lesson Management Team!\n\nYour latest schedule is:",
-            color=discord.Colour.from_rgb(234,72,223)
-        )
-        await self.teacher_classes_overview_embed(embed)
+        # from now on create sequence of "menus.Menu" interactions here
+        # so the teachers can work with the management pipelines
 
-        await self.changes_done(embed)
-        # self.button_descriptions_embed(embed)
+        # zeroth_msg = await member.send('Starting class management...')
+        # zeroth_msg = await member.send('Starting class management...')
+        # dm_ctx = await self.client.get_context(zeroth_msg)
 
-        # self.msg = await channel.send(embed=embed)
-        await self.msg.edit(content=None, embed=embed)
-
-
-    async def changes_done(self, embed):
-        yes   = ":white_check_mark:"
-        no    = ":x:"
-        maybe = ":hourglass:"
-        yesno   = [no, yes]
-        maybeno = [no, maybe]
-
-        changes_str = '\n'.join(
-            [f'[{maybeno[x.status]}]: {x}' for x in self.changes['add']]+
-            [f'[{maybeno[x.status]}]: {x}' for x in self.changes['edit']]+
-            [f'[{yesno[x.status]}]: {x}' for x in self.changes['removal']]+
-            [f'[{yesno[x.status]}]: {x}' for x in self.changes['pause']]
-        )
-
-        embed.add_field(
-            name=':notebook_with_decorative_cover: Changes',
-            values=changes_str,
-            inline=False
-        )
+        # pprint(dm_ctx.__dict__)
+        # pprint(dm_ctx.author)
+        # try:
+        #     res = await ClassManagementMenuTeacher(dm_ctx, zeroth_msg, member).begin()
+        # except:
+        #     PrintException()
 
 
 
-    async def main_menu(self):
 
-        embed = discord.Embed(
-            title="**You called me in the class management channel.**",
-            description="What do you want to do?\n\nYour current schedule is:",
-            color=discord.Colour.from_rgb(234,72,223)
-        )
-        await self.teacher_classes_overview_embed(embed)
+    @discord.ui.button(
+        style=discord.ButtonStyle.green,
+        label='Edit a class',
+        disabled=False,
+        custom_id='clmv_edit_class',
+        emoji='\U0001F4C5',
+        row=0
+    )
+    async def edit_class(self, btn: Button, interaction: discord.Interaction):
+        ''' Handles Class Management related . '''
 
-        embed.set_footer(
-            text='\U0001F4E5 add a class\t\U0001F4E4 remove a class\n\U0001F4C5 edit a class\t\U000023F0 pause classes'
-        )
-
-        await self.msg.edit(content=None, embed=embed)
-
-        # emojis = ['\U0001F4E5', '\U0001F4C5', '\U0001F4E4', '\U000023F0', '\U0001F44B']
-        # callbacks = [self.do_add, self.do_edit, self.do_remove, self.do_pause, self.do_stop]
-        # await self.set_buttons(emojis, callbacks)
+        if not interaction.guild_id or not interaction.user or \
+            interaction.user.bot:
+            return
 
 
-    def _skip_main(self):
-        return len(self.back_status)
+        # member = payload.member
+        member = interaction.user
 
-    # adicao - needs approval
-    @menus.button('\U0001F4E5', skip_if=_skip_main)
-    async def do_add(self, payload):
-        self.changes['add'] = await self.add_menu()
 
-        # self.show_available_slots(payload)
+        await interaction.response.send_message('edit', ephemeral=True)
 
-        # self.changes['add'] = await ClassManagementMenuTeacherAdd(self.ctx, self.msg, self.member, self.current_classes, languages).begin()
 
-    # alteracao de horario - needs approval
-    @menus.button('\U0001F4C5', skip_if=_skip_main)
-    async def do_edit(self, payload):
-        pass
+    @discord.ui.button(
+        style=discord.ButtonStyle.green,
+        label='Delete a class',
+        disabled=False,
+        custom_id='clmv_del_class',
+        emoji='\U0001F4E4',
+        row=0
+    )
+    async def del_class(self, btn: Button, interaction: discord.Interaction):
+        ''' Handles Class Management related . '''
 
-    # remocao - no approval
-    @menus.button('\U0001F4E4', skip_if=_skip_main)
-    async def do_remove(self, payload):
-        pass
+        if not interaction.guild_id or not interaction.user or \
+            interaction.user.bot:
+            return
 
-    # pausa - no approval
-    @menus.button('\U000023F0', skip_if=_skip_main)
-    async def do_pause(self, payload):
-        pprint(payload)
-        pass
 
-    # finalise
-    @menus.button('\U0001F44B', skip_if=_skip_main)
-    async def do_stop(self, payload):
-        if len(self.back_status):
-            self.back_status[-1]()
+        # member = payload.member
+        member = interaction.user
+
+
+        await interaction.response.send_message('del', ephemeral=True)
+
+
+    @discord.ui.button(
+        style=discord.ButtonStyle.green,
+        label='Pause/Cancel a class',
+        disabled=False,
+        custom_id='clmv_cancel_class',
+        emoji='\U000023F0',
+        row=0
+    )
+    async def cancel_class(self, btn: Button, interaction: discord.Interaction):
+        ''' Handles Class Management related . '''
+
+        if not interaction.guild_id or not interaction.user or \
+            interaction.user.bot:
+            return
+
+
+        # member = payload.member
+        member = interaction.user
+
+
+        await interaction.response.send_message('cancel', ephemeral=True)
+
+
+
+class AddLessonView(View):
+
+    def add_disabled_btn(self, label, row=None, color=discord.ButtonStyle.blurple):
+        self.add_item(Button(
+            disabled=True,
+            style=color,
+            label=label,
+            row=row
+        ))
+
+
+    def __init__(self, states, embed, client, langs=None):
+        super().__init__(timeout=120)
+
+        if 'selected_lang' not in states:
+            async def set_selected_lang(self):
+                self.states['selected_lang'] = self.values[0]
+
+            for i in range(0, len(langs), 25):
+                self.add_item(
+                    # LangsSelect(
+                    ClassManagementSelect(
+                        states,
+                        embed,
+                        func=set_selected_lang,
+                        client=client,
+                        placeholder='Select a language',
+                        custom_id=f'clmv_sel_lang_{i}',
+                        options=[
+                            discord.SelectOption(
+                                label=label
+                            )
+                            for label in langs[i:i+25]
+                        ]
+                    )
+                )
+            return
         else:
-            self.stop()
+            self.add_disabled_btn(f"{states['selected_lang']}")
+
+        if 'is_permanent' not in states:
+
+            async def set_is_permanent(self):
+                self.states['is_permanent'] = self.values[0] == 'True'
+
+            self.add_item(
+                ClassManagementSelect(
+                    states,
+                    embed,
+                    func=set_is_permanent,
+                    client=client,
+                    placeholder='Is it a permanent class?',
+                    row=1,
+                    options=[
+                        discord.SelectOption(
+                            label=label,
+                            value=value
+                        )
+                        for label, value in [['Yes', True], ['No', False]]
+                    ]
+                )
+            )
+            return
+        else:
+            is_permanent = states['is_permanent']
+            self.add_disabled_btn(f"{['Extra','Permanent'][is_permanent]} class")
+
+        if 'week_day' not in states:
+            async def set_week_day(self):
+                self.states['week_day'] = self.values[0]
+                times = await TeacherDB.get_available_hours(**self.states)
+                self.states['times'] = times
+
+            self.add_item(
+                ClassManagementSelect(
+                    states,
+                    embed,
+                    func=set_week_day,
+                    client=client,
+                    placeholder='Select a week day',
+                    row=1,
+                    options=[
+                        discord.SelectOption(
+                            label=label
+                        )
+                        for label in ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+                    ]
+                )
+            )
+            return
+        else:
+            self.add_disabled_btn(f"{states['week_day']}")
+
+        if 'time' not in states:
+            async def set_time(self):
+                self.states['time'] = self.values[0]
+
+            self.add_item(
+                ClassManagementSelect(
+                    states,
+                    embed,
+                    func=set_time,
+                    client=client,
+                    placeholder='Select an available time',
+                    row=1,
+                    options=[
+                        discord.SelectOption(
+                            label=str(value)+' h',
+                            value=value
+                        )
+                        for value in states['times']
+                    ]
+                )
+            )
+            return
+        else:
+            time = states['time']
+            self.add_disabled_btn(f"{time} h")
 
 
-    # =================================
-    #   add menu
-    # =================================
-
-    async def add_menu(self):
-        try:
-            await self.update_buttons('add')
-        except:
-            PrintException()
-
-        self.back_status.append(self.main_menu)
-
-        self.languages = await TeacherDB.get_taught_languages()
-
-        embed = self.add_menu_embed()
-        src  = ListTaughtLanguages(self.languages, embed)
-        await self.change_source(src)
-
-
-
-
-    def add_menu_embed(self):
-        embed = discord.Embed(
-            title="**Adding Class Menu**",
-            description="What do you want to do?\n\nYour current schedule is:",
-            color=discord.Colour.from_rgb(234,72,223)
-        )
-
-        embed.add_field(
-            name=':calendar_spiral: Permament classes',
-            value=self.current_classes['permanent'],
-            inline=False
-        )
-        embed.add_field(
-            name=':calendar_spiral: Extra classes',
-            value=self.current_classes['extra'],
-            inline=False
-        )
-        embed.add_field(
-            name=':notepad_spiral: **List of already taught languages**',
-            value='',
-            inline=False
-        )
-        embed.set_footer(
-            text=':0 to 9: select language from listn\n:emojis do paginator:\n:emoji here: If your desired language is not listed'
-        )
-
-
-        return embed
-
-
-    # async def show_page(self, ctx, channel):
-    #     page = await self._source.get_page(0)
-    #     kwargs = await self._get_kwargs_from_page(page)
-    #     # return await channel.send(**kwargs)
-    #     return await self.msg.edit(**kwargs)
-
-    # async def finalize(self, timeout):
-    #
-    #     embed = discord.Embed(
-    #         title="**Thank you for teaching!**",
-    #         description="Your requests, if any, were sent to the Lesson Management Team!\n\nYour latest schedule is:",
-    #         color=discord.Colour.from_rgb(234,72,223)
-    #     )
-    #     # await self.teacher_classes_overview_embed(embed)
-    #
-    #     # await self.changes_done(embed)
-    #     # self.button_descriptions_embed(embed)
-    #
-    #     # self.msg = await channel.send(embed=embed)
-    #     await self.msg.edit(content=None, embed=embed)
-
-    # async def changes_done(self, embed):
-    #     yes   = ":white_check_mark:"
-    #     no    = ":x:"
-    #     maybe = ":hourglass:"
-    #     yesno   = [no, yes]
-    #     maybeno = [no, maybe]
-    #
-    #     changes_str = '\n'.join(
-    #         [f'[{maybeno[x.status]}]: {x}' for x in self.changes['add']]+
-    #         [f'[{maybeno[x.status]}]: {x}' for x in self.changes['edit']]+
-    #         [f'[{yesno[x.status]}]: {x}' for x in self.changes['removal']]+
-    #         [f'[{yesno[x.status]}]: {x}' for x in self.changes['pause']]+
-    #     )
-    #
-    #     embed.add_field(
-    #         name=':notebook_with_decorative_cover: Changes',
-    #         values=changes_str,
-    #         inline=False
-    #     )
-    #
-    #     pass
-
-
-    # # adicao - needs approval
-    # @menus.button('\U0001F4E5')
-    # async def do_add(self, payload):
-    #     # self.show_available_slots(payload)
-    #     pass
-    #
-    # # alteracao de horario - needs approval
-    # @menus.button('\U0001F4C5')
-    # async def do_edit(self, payload):
-    #     pass
-    #
-    # # remocao - no approval
-    # @menus.button('\U0001F4E4')
-    # async def do_remove(self, payload):
-    #     pass
-    #
-    # # pausa - no approval
-    # @menus.button('\U000023F0')
-    # async def do_pause(self, payload):
-    #     pprint(payload)
-    #     pass
-
-    # # finalise
-    # @menus.button('\U0001F44B')
-    # async def do_stop(self, payload):
-    #     pprint(payload)
-    #     # print(payload.member)
-    #     # await self.msg.edit(content=None)
-    #     self.stop()
-    #
-    #     pass
+        if 'ok' not in states:
+            self.add_item(CLMVConfirm(
+                states,
+                embed,
+                client=client,
+                func=send_new_class_request,
+                style=discord.ButtonStyle.green,
+                label='Send Request',
+                emoji='\U00002705',
+                row=1
+            ))
+            self.add_item(CLMVConfirm(
+                states,
+                embed,
+                client=client,
+                func=cancel_new_class_request,
+                style=discord.ButtonStyle.red,
+                label='JUST DON\'T',
+                emoji='\U0001F590',
+                row=1
+            ))
+        else:
+            if states['ok']:
+                self.add_disabled_btn(f"Finished!", color=discord.ButtonStyle.green, row=1)
+            else:
+                self.add_disabled_btn(f"Not sent!", color=discord.ButtonStyle.red, row=1)
 
 
 
-class ListTaughtLanguages(menus.ListPageSource):
-    """ A class for listing known languages. """
 
-    def __init__(self, data=[], embed=None):
-        """ Class initializing method. """
-        data = data if len(data) else ["No taught languages yet. Please add yours."]
-
-        super().__init__(data, per_page=5)
-        # print('passei do ListTaughtLanguages super init')
+class ClassManagementSelect(Select):
+    def __init__(self, states, embed, client, func, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        self.states = states
         self.embed = embed
-        # print('setei embed')
+        self.func = func
+        self.client = client
 
+    async def callback(self, interaction: discord.Interaction):
+        await self.func(self)
 
-    async def format_page(self, menu, entries):
-        """ Formats each page. """
-        # print('entrei format page')
-
-        offset = menu.current_page * self.per_page
-        # print('format aqui', menu.current_page)
-        # pprint(self.embed.fields)
-        val = '\n'.join([
-            f'[{i}] {lang}' for i, lang in enumerate(entries)
-        ])
-
-        # pprint(val)
-        # self.embed.fields[2].value = val
-        self.embed.set_field_at(
-            index = 2,
-            name = self.embed.fields[2].name,
-            value = val,
-            inline = self.embed.fields[2].inline
+        await interaction.response.edit_message(
+            embed=self.embed,
+            view=AddLessonView(
+                self.states,
+                self.embed,
+                self.client
+            )
         )
-        # pprint(self.embed.fields)
 
-        return self.embed
+
+class CLMVConfirm(Button):
+
+    def __init__(self, states, embed, client, func, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.states = states
+        self.embed = embed
+        self.func = func
+        self.client = client
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.func(self, interaction)
+
+
+async def send_new_class_request(self, interaction: discord.Interaction):
+    member = interaction.user
+
+    states = self.states
+    is_permanent = states['is_permanent']
+
+    if is_permanent:
+        color=discord.Colour.from_rgb(234,72,223)
+    else:
+        color=discord.Colour.from_rgb(45,160,226)
+
+    # embed = discord.Embed(title=f'{member.name}',
+                          # description=f"Requested for adding {['an Extra','a Permanent'][states['is_permanent']]} class:", color=color
+    embed = discord.Embed(
+        title=f"Add {['Extra','Permanent'][is_permanent]} class request",
+        description=f"Info:", color=color)
+    embed.add_field(name='id',value=member.id)
+    embed.add_field(name='name',value=member.name)
+    embed.add_field(name='nick',value=member.nick)
+    embed.add_field(name='language',value=states['selected_lang'])
+    embed.add_field(name='day',value=states['week_day'])
+    embed.add_field(name='time',value=states['time'])
+    embed.add_field(name='permanent',value=is_permanent)
+
+    view = View(timeout=None)
+    view.add_item(CLMVConfirm(
+        custom_id='approve_new_class_request_id',
+        states=states,
+        embed=embed,
+        client=self.client,
+        func=approve_new_class_request,
+        style=discord.ButtonStyle.green,
+        label='Approve',
+        emoji='\U00002705'
+    ))
+    view.add_item(CLMVConfirm(
+        custom_id='deny_new_class_request_id',
+        states=states,
+        embed=embed,
+        client=self.client,
+        func=deny_new_class_request,
+        style=discord.ButtonStyle.red,
+        label='Deny',
+        emoji='\U0001F590'
+    ))
+
+    app_channel = self.client.get_channel(class_management_approval_channel_id)
+    msg = await app_channel.send(embed=embed, view=view)
+
+    self.states['ok'] = True
+
+    await interaction.response.edit_message(
+        embed=self.embed,
+        view=AddLessonView(
+            self.states,
+            self.embed,
+            self.client
+        )
+    )
+
+async def cancel_new_class_request(self, interaction: discord.Interaction):
+    self.states['ok'] = False
+
+    await interaction.response.edit_message(
+        embed=self.embed,
+        view=AddLessonView(
+            self.states,
+            self.embed,
+            self.client
+        )
+    )
+
+
+async def approve_new_class_request(self, interaction: discord.Interaction):
+    # check whether the person who approved has lesson management role
+    print('aprovei!')
+    pass
+async def deny_new_class_request(self, interaction: discord.Interaction):
+    print('gostei desse babaca nao')
+    pass
