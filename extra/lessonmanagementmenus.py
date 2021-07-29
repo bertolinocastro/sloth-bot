@@ -26,7 +26,11 @@ class_management_channel_id = int(os.getenv('CLASS_MANAGEMENT_CHANNEL_ID'))
 class_management_approval_channel_id = int(os.getenv('CLASS_MANAGEMENT_APPROVAL_CHANNEL_ID'))
 # teacher_role_id = int(os.getenv('TEACHER_ROLE_ID'))
 # report_channel_id = int(os.getenv('REPORT_CHANNEL_ID'))
-
+lesson_management_role_id = int(os.getenv('LESSON_MANAGEMENT_ROLE_ID'))
+owner_role_id = int(os.getenv('OWNER_ROLE_ID'))
+admin_role_id = int(os.getenv('ADMIN_ROLE_ID'))
+# approval_authorized_roles = [lesson_management_role_id, admin_role_id, owner_role_id]
+approval_authorized_roles = [lesson_management_role_id] # Muffin que se vire pra pegar a role de lesson management se ela não tiver kakaka
 
 
 class ChannelLessonManagementView(View):
@@ -230,10 +234,11 @@ class AddLessonView(View):
                     ClassManagementSelect(
                         states,
                         embed,
+                        langs,
                         func=set_selected_lang,
                         client=client,
                         placeholder='Select a language',
-                        custom_id=f'clmv_sel_lang_{i}',
+                        # custom_id=f'clmv_sel_lang_{i}',
                         options=[
                             discord.SelectOption(
                                 label=label
@@ -246,6 +251,33 @@ class AddLessonView(View):
         else:
             self.add_disabled_btn(f"{states['selected_lang']}")
 
+        if 'selected_used_lang' not in states:
+            async def set_selected_lang(self):
+                self.states['selected_used_lang'] = self.values[0]
+
+            for i in range(0, len(langs), 25):
+                self.add_item(
+                    # LangsSelect(
+                    ClassManagementSelect(
+                        states,
+                        embed,
+                        langs,
+                        func=set_selected_lang,
+                        client=client,
+                        placeholder='Select the language you will speak',
+                        # custom_id=f'clmv_sel_used_lang_{i}',
+                        options=[
+                            discord.SelectOption(
+                                label=label
+                            )
+                            for label in langs[i:i+25]
+                        ]
+                    )
+                )
+            return
+        else:
+            self.add_disabled_btn(f"{states['selected_used_lang']}")
+
         if 'is_permanent' not in states:
 
             async def set_is_permanent(self):
@@ -255,6 +287,7 @@ class AddLessonView(View):
                 ClassManagementSelect(
                     states,
                     embed,
+                    langs,
                     func=set_is_permanent,
                     client=client,
                     placeholder='Is it a permanent class?',
@@ -283,6 +316,7 @@ class AddLessonView(View):
                 ClassManagementSelect(
                     states,
                     embed,
+                    langs,
                     func=set_week_day,
                     client=client,
                     placeholder='Select a week day',
@@ -307,6 +341,7 @@ class AddLessonView(View):
                 ClassManagementSelect(
                     states,
                     embed,
+                    langs,
                     func=set_time,
                     client=client,
                     placeholder='Select an available time',
@@ -331,6 +366,7 @@ class AddLessonView(View):
                 states,
                 embed,
                 client=client,
+                langs=langs,
                 func=send_new_class_request,
                 style=discord.ButtonStyle.green,
                 label='Send Request',
@@ -341,6 +377,7 @@ class AddLessonView(View):
                 states,
                 embed,
                 client=client,
+                langs=langs,
                 func=cancel_new_class_request,
                 style=discord.ButtonStyle.red,
                 label='JUST DON\'T',
@@ -357,10 +394,11 @@ class AddLessonView(View):
 
 
 class ClassManagementSelect(Select):
-    def __init__(self, states, embed, client, func, *args, **kwargs):
+    def __init__(self, states, embed, langs, client, func, *args, **kwargs):
         super().__init__(*args,**kwargs)
         self.states = states
         self.embed = embed
+        self.langs = langs
         self.func = func
         self.client = client
 
@@ -372,17 +410,19 @@ class ClassManagementSelect(Select):
             view=AddLessonView(
                 self.states,
                 self.embed,
-                self.client
+                self.client,
+                self.langs
             )
         )
 
 
 class CLMVConfirm(Button):
 
-    def __init__(self, states, embed, client, func, *args, **kwargs):
+    def __init__(self, states, embed, client, langs, func, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.states = states
         self.embed = embed
+        self.langs = langs
         self.func = func
         self.client = client
 
@@ -410,6 +450,7 @@ async def send_new_class_request(self, interaction: discord.Interaction):
     embed.add_field(name='name',value=member.name)
     embed.add_field(name='nick',value=member.nick)
     embed.add_field(name='language',value=states['selected_lang'])
+    embed.add_field(name='language_used',value=states['selected_used_lang'])
     embed.add_field(name='day',value=states['week_day'])
     embed.add_field(name='time',value=states['time'])
     embed.add_field(name='permanent',value=is_permanent)
@@ -420,6 +461,7 @@ async def send_new_class_request(self, interaction: discord.Interaction):
         states=states,
         embed=embed,
         client=self.client,
+        langs=self.langs,
         func=approve_new_class_request,
         style=discord.ButtonStyle.green,
         label='Approve',
@@ -430,6 +472,7 @@ async def send_new_class_request(self, interaction: discord.Interaction):
         states=states,
         embed=embed,
         client=self.client,
+        langs=self.langs,
         func=deny_new_class_request,
         style=discord.ButtonStyle.red,
         label='Deny',
@@ -446,7 +489,8 @@ async def send_new_class_request(self, interaction: discord.Interaction):
         view=AddLessonView(
             self.states,
             self.embed,
-            self.client
+            self.client,
+            langs=self.langs
         )
     )
 
@@ -458,15 +502,75 @@ async def cancel_new_class_request(self, interaction: discord.Interaction):
         view=AddLessonView(
             self.states,
             self.embed,
-            self.client
+            self.client,
+            langs=self.langs
         )
     )
 
 
 async def approve_new_class_request(self, interaction: discord.Interaction):
-    # check whether the person who approved has lesson management role
-    print('aprovei!')
+    member = interaction.user
+
+
+    # TODO: use the list approval_authorized_roles
+    if not member.get_role(lesson_management_role_id):
+        await interaction.response.send_message("**You don't have the right roles for this!**", ephemeral=True)
+        return
+
+    msg = interaction.message
+
+    embed = msg.embeds[0].to_dict()
+    fields = {}
+    for field in embed['fields']:
+        fields[field['name']]=field['value']
+    pprint(fields)
+
+    inserted = False
+    # NOTE: all fields in `fields` have strings as values
+    if fields['permanent'] == 'True':
+        inserted = await TeacherDB.insert_permanent_class(
+            fields['id'], fields['name'], fields['language'], fields['language_used'], fields['day'], fields['time'], True
+        )
+    else:
+        # await TeacherDB.insert_extra_class(
+        #     fields['id'], fields['name'], fields['language'], fields['language_used'], fields['day'], fields['time'], True
+        # )
+        pass
+
+    view = View(timeout=None)
+    view.add_item(Button(
+        disabled=True,
+        style=discord.ButtonStyle.blurple if inserted else discord.ButtonStyle.red,
+        label=f'Approved by {member.name}' if inserted else 'Class already exists!',
+        emoji='\U0001F512'
+    ))
+
+    await interaction.response.edit_message(
+        embed=msg.embeds[0],
+        view=view
+    )
+
+    #TODO Add an result to the Teacher here and in deny
     pass
+
 async def deny_new_class_request(self, interaction: discord.Interaction):
+    member = interaction.user
     print('gostei desse babaca nao')
+    msg = interaction.message
+    view = View(timeout=None)
+    view.add_item(Button(
+        disabled=True,
+        style=discord.ButtonStyle.blurple,
+        label=f'Denied by {member.name}',
+        emoji='\U0001F512'
+    ))
+
+    await interaction.response.edit_message(
+        embed=msg.embeds[0],
+        view=view
+    )
     pass
+
+async def feedback_teacher_request(member, txt):
+
+    member

@@ -76,6 +76,7 @@ class ClassManagement(commands.Cog):
             states=None,
             embed=None,
             client=self.client,
+            langs=None,
             func=approve_new_class_request,
             style=discord.ButtonStyle.green,
             label='Approve',
@@ -86,6 +87,7 @@ class ClassManagement(commands.Cog):
             states=None,
             embed=None,
             client=self.client,
+            langs=None,
             func=deny_new_class_request,
             style=discord.ButtonStyle.red,
             label='Deny',
@@ -164,7 +166,8 @@ class ClassManagement(commands.Cog):
         if await TeacherDB.table_exists('PermanentClasses'):
             return await ctx.send("**Table `PermanentClasses` already exists!**")
 
-        TeacherDB.create_permanent_classes_table()
+        await TeacherDB.create_permanent_classes_table()
+        await ctx.send("**Table __PermanentClasses__ created!**")
 
 
     @commands.command
@@ -175,7 +178,45 @@ class ClassManagement(commands.Cog):
         if await TeacherDB.table_exists('PermanentClassesOccurrences'):
             return await ctx.send("**Table `PermanentClassesOccurrences` already exists!**")
 
-        TeacherDB.create_permanent_classes_occurrences_table()
+        await TeacherDB.create_permanent_classes_occurrences_table()
+        await ctx.send("**Table __PermanentClassesOccurrences__ created!**")
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def drop_permanent_classes_table(self, ctx):
+        '''Drop the classes table in the database'''
+
+        if not await TeacherDB.table_exists('PermanentClasses'):
+            return await ctx.send("**Table `PermanentClasses` doesn't exist!**")
+
+        await TeacherDB.drop_permanent_classes_table()
+        await ctx.send("**Table __PermanentClasses__ dropped!**")
+
+
+
+    # this command should be in another related Cog
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def create_languages_table(self, ctx):
+        '''Create the languages table in the database'''
+
+        if await TeacherDB.table_exists('Languages'):
+            return await ctx.send("**Table `Languages` already exists!**")
+
+        await TeacherDB.create_languages_table()
+        await ctx.send("**Table __Languages__ created!**")
+
+    # this command should be in another related Cog
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def insert_prelisted_languages_table(self, ctx):
+        '''Create the languages table in the database'''
+
+        if not await TeacherDB.table_exists('Languages'):
+            return await ctx.send("**Table `Languages` doesn't exist!**")
+
+        await TeacherDB.insert_prelisted_languages_table()
+        await ctx.send("**Prelisted languages in __Languages__ inserted!**")
 
 
 def setup(client):
