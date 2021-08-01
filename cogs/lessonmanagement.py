@@ -170,7 +170,7 @@ class ClassManagement(commands.Cog):
         await ctx.send("**Table __PermanentClasses__ created!**")
 
 
-    @commands.command
+    @commands.command(hidden=True)
     @commands.has_permissions(administrator=True)
     async def create_permanent_classes_occurrences_table(self, ctx):
         '''Create the classes occurrences table in the database'''
@@ -181,6 +181,43 @@ class ClassManagement(commands.Cog):
         await TeacherDB.create_permanent_classes_occurrences_table()
         await ctx.send("**Table __PermanentClassesOccurrences__ created!**")
 
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def create_extra_classes_table(self, ctx):
+        '''Create the classes table in the database'''
+
+        if await TeacherDB.table_exists('ExtraClasses'):
+            return await ctx.send("**Table `ExtraClasses` already exists!**")
+
+        await TeacherDB.create_extra_classes_table()
+        await ctx.send("**Table __ExtraClasses__ created!**")
+
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def create_lesson_approval_requests_table(self, ctx):
+        '''Create the LessonApprovalRequests table in the database'''
+
+        if await TeacherDB.table_exists('LessonApprovalRequests'):
+            return await ctx.send("**Table `LessonApprovalRequests` already exists!**")
+
+        await TeacherDB.create_lesson_approval_requests_table()
+        await ctx.send("**Table __LessonApprovalRequests__ created!**")
+
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def drop_lesson_approval_requests_table(self, ctx):
+        '''Drop the LessonApprovalRequests table in the database'''
+
+        if not await TeacherDB.table_exists('LessonApprovalRequests'):
+            return await ctx.send("**Table `LessonApprovalRequests` doesn't exist!**")
+
+        await TeacherDB.drop_table('LessonApprovalRequests')
+        await ctx.send("**Table __LessonApprovalRequests__ dropped!**")
+
+
     @commands.command(hidden=True)
     @commands.has_permissions(administrator=True)
     async def drop_permanent_classes_table(self, ctx):
@@ -189,9 +226,32 @@ class ClassManagement(commands.Cog):
         if not await TeacherDB.table_exists('PermanentClasses'):
             return await ctx.send("**Table `PermanentClasses` doesn't exist!**")
 
-        await TeacherDB.drop_permanent_classes_table()
+        await TeacherDB.drop_table('PermanentClasses')
         await ctx.send("**Table __PermanentClasses__ dropped!**")
 
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def drop_permanent_classes_occurences_table(self, ctx):
+        '''Drop the classes table in the database'''
+
+        if not await TeacherDB.table_exists('PermanentClassesOccurrences'):
+            return await ctx.send("**Table `PermanentClassesOccurrences` doesn't exist!**")
+
+        await TeacherDB.drop_table('PermanentClassesOccurrences')
+        await ctx.send("**Table __PermanentClassesOccurrences__ dropped!**")
+
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def drop_extra_classes_table(self, ctx):
+        '''Drop the classes table in the database'''
+
+        if not await TeacherDB.table_exists('ExtraClasses'):
+            return await ctx.send("**Table `ExtraClasses` doesn't exist!**")
+
+        await TeacherDB.drop_table('ExtraClasses')
+        await ctx.send("**Table __ExtraClasses__ dropped!**")
 
 
     # this command should be in another related Cog
@@ -205,6 +265,20 @@ class ClassManagement(commands.Cog):
 
         await TeacherDB.create_languages_table()
         await ctx.send("**Table __Languages__ created!**")
+
+
+    # this command should be in another related Cog
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def drop_languages_table(self, ctx):
+        '''Create the languages table in the database'''
+
+        if not await TeacherDB.table_exists('Languages'):
+            return await ctx.send("**Table `Languages` doesn't exist!**")
+
+        await TeacherDB.drop_table('Languages')
+        await ctx.send("**Table __Languages__ dropped!**")
+
 
     # this command should be in another related Cog
     @commands.command(hidden=True)
