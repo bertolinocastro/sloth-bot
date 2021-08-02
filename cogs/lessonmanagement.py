@@ -127,6 +127,8 @@ class ClassManagement(commands.Cog):
                               description='Welcome to the Lesson Management Menu. Here you have the options to add and remove your classes and also manage when you will do them!', color=discord.Colour.from_rgb(234,72,223))
         embed.add_field(name=':calendar_spiral: Calendar',
                         value='Open the [calendar](https://thelanguagesloth.com/class/calendar/) to see the classes!', inline=False)
+        embed.add_field(name=':grey_question: FAQ',
+                        value="1. **I can't see a language to select**\nSloth shows only the languages matching the ones in your roles\n2. **I can't see the time I want to teach**\nSloth shows only available hours based on the day and languages you chose", inline=False)
         # embed.add_field(name='React below with:',
         #                 value=self.classmanagement_emoji+' if you want to start to chat directly with me to manage your classes!', inline=False)
 

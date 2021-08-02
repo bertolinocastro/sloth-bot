@@ -95,6 +95,10 @@ class ChannelLessonManagementView(View):
         embed = await self.teacher_classes_overview_embed(member)
         languages = await TeacherDB.get_taught_languages()
 
+        langroles = [x.name.replace('Native ','').replace('Fluent ','').replace('Studying ','') for x in member.roles if x.name.startswith('Native') or x.name.startswith('Fluent') or x.name.startswith('Studying') or x.name.startswith('Programming') or x.name.startswith('Sign Languages')]
+
+        languages = [x for x in languages if x in langroles]
+
         states = {}
         # view = AddLessonView(states, embed, self.client, ['pt','en','de'])
         view = AddLessonView(states, embed, self.client, languages)
@@ -599,7 +603,7 @@ async def approve_new_class_request(self, interaction: discord.Interaction):
 
     embed = discord.Embed(
         title=f"Approved Request #{request['id']}:\t\t\tAdd {['Extra','Permanent'][request['is_permanent']]} class",
-        description=f"We are happy to inform that your request was approved!\nYou can look it in [TLS calendar](https://thelanguagesloth.com/class/calendar/)\nIf you have any questions, please, contact the Lesson Management Team <#here> (= some general channel)",
+        description=f"We are happy to inform that your request was approved!\n\nYou can look it in [TLS calendar](https://thelanguagesloth.com/class/calendar/)\n\nIf you have any questions, please, contact the Lesson Management Team <#here> (= some general channel)",
         color=discord.Colour.from_rgb(46,242,52))
 
     await feedback_teacher_request_embed(embed, request)

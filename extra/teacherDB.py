@@ -225,14 +225,17 @@ class TeacherDB:
     async def get_teacher_classes(member_id):
 
         mycursor, db = await the_database()
-        await mycursor.execute("SELECT language, day_of_week, time FROM PermanentClasses WHERE teacher_id = %s AND is_active" % (member_id))
-        table_info = await mycursor.fetchall()
+        await mycursor.execute("SELECT language, language_used, day_of_week, time FROM PermanentClasses WHERE teacher_id = %s AND is_active" % (member_id))
+        perma = await mycursor.fetchall()
+        await mycursor.execute("SELECT language, language_used, date_to_occur, time FROM ExtraClasses WHERE teacher_id = %s AND date_to_occur >= NOW()" % (member_id))
+        extra = await mycursor.fetchall()
         await mycursor.close()
 
         ret = {
             'permanent':
-                '\n'.join([f'[{l}]: {d}s at {t}:00' for l,d,t in table_info]) if table_info else 'Empty',
-            'extra': ' Empty' # TODO: implement extra classes database
+                '\n'.join([f'[{l} in {u}]: {d}s at {ampm_time(t)}' for l,u,d,t in perma]) if perma else 'Empty',
+            'extra': #' Empty' # TODO: implement extra classes database
+                '\n'.join([f'[{l} in {u}]: {d.strftime("%A, %d of %B")} at {ampm_time(t)}' for l,u,d,t in extra]) if extra else 'Empty',
         }
         return ret
 
@@ -327,3 +330,8 @@ class TeacherDB:
             VALUES """+langs)
         await db.commit()
         await mycursor.close()
+
+
+def ampm_time(time: int):
+    time = int(time)
+    return f"{time%12 or 12}" + ("AM" if time<12 else "PM")
