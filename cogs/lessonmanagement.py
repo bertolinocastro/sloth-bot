@@ -17,6 +17,7 @@ from extra.menu import ConfirmSkill
 
 server_id = int(os.getenv('SERVER_ID'))
 teacher_role_id = int(os.getenv('TEACHER_ROLE_ID'))
+lesson_management_role_id = int(os.getenv('LESSON_MANAGEMENT_ROLE_ID'))
 class_management_channel_id = int(os.getenv('CLASS_MANAGEMENT_CHANNEL_ID'))
 class_management_approval_channel_id = int(os.getenv('CLASS_MANAGEMENT_APPROVAL_CHANNEL_ID'))
 report_channel_id = int(os.getenv('REPORT_CHANNEL_ID'))
@@ -62,6 +63,7 @@ class ClassManagement(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self) -> None:
 
+        self.guild = self.client.get_guild(server_id)
         self.class_mng_channel = self.client.get_channel(class_management_channel_id)
         self.class_mng_approval_channel = self.client.get_channel(class_management_approval_channel_id)
 
@@ -143,6 +145,48 @@ class ClassManagement(commands.Cog):
         #     await self.create_class_management_embed_view_task()
         # else:
         #     print('Found the class management embed!')
+
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def missing_teacher_requests(self, ctx, clean: bool = False) -> None:
+        ''' Recreate all embeds that are still in the database waiting to be approved.
+        :param bool clean: Whether to purge entire channel '''
+
+        if self.class_mng_approval_channel != ctx.channel:
+            return
+
+        if clean:
+            # threads = await self.class_mng_approval_channel.active_threads()
+            # threads_active_ids = []
+            # for thread in threads:
+            #     first_msg = (await (thread.history(limit=1)).flatten())[0]
+            #     threads_active_ids.append(first_msg.id)
+            #
+            # pprint(threads_active_ids)
+            # def has_no_active_thread(m):
+            #     return m.id not in threads_active_ids
+            #
+            # await self.class_mng_approval_channel.purge(check=has_no_active_thread)
+
+            await self.class_mng_approval_channel.purge()
+
+        requests = await TeacherDB.get_all_class_requests()
+
+        if not len(requests):
+            await ctx.send("**There's no remaining Teacher request to be analysed!**\nAlthough there might be opened cases in active threads.", delete_after=15)
+
+        for request in requests:
+
+            member = self.guild.get_member(request['teacher_id'])
+
+            extend_request_as_in_view(request)
+
+            await send_request_in_approval_channel(request, member, self.client)
+
+            # trying to prevent rate limit as this command might send too many messages in a row
+            await asyncio.sleep(.5)
+
 
 
 

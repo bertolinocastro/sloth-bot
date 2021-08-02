@@ -7,7 +7,7 @@ from extra.teacherDB import TeacherDB
 from mysqldb import *
 import asyncio
 
-from datetime import date, timedelta
+from datetime import date, timedelta#, datetime
 
 import linecache
 import sys
@@ -185,9 +185,9 @@ class AddLessonView(View):
     def __init__(self, states, embed, client, langs=None):
         super().__init__(timeout=120)
 
-        if 'selected_lang' not in states:
-            async def set_selected_lang(self):
-                self.states['selected_lang'] = self.values[0]
+        if 'language' not in states:
+            async def set_language(self):
+                self.states['language'] = self.values[0]
 
             for i in range(0, len(langs), 25):
                 self.add_item(
@@ -196,7 +196,7 @@ class AddLessonView(View):
                         states,
                         embed,
                         langs,
-                        func=set_selected_lang,
+                        func=set_language,
                         client=client,
                         placeholder='Select a language',
                         # custom_id=f'clmv_sel_lang_{i}',
@@ -210,11 +210,11 @@ class AddLessonView(View):
                 )
             return
         else:
-            self.add_disabled_btn(f"Teaching {states['selected_lang']}")
+            self.add_disabled_btn(f"Teaching {states['language']}")
 
-        if 'selected_used_lang' not in states:
-            async def set_selected_lang(self):
-                self.states['selected_used_lang'] = self.values[0]
+        if 'language_used' not in states:
+            async def set_language_used(self):
+                self.states['language_used'] = self.values[0]
 
             for i in range(0, len(langs), 25):
                 self.add_item(
@@ -223,7 +223,7 @@ class AddLessonView(View):
                         states,
                         embed,
                         langs,
-                        func=set_selected_lang,
+                        func=set_language_used,
                         client=client,
                         placeholder='Select the language you will speak',
                         # custom_id=f'clmv_sel_used_lang_{i}',
@@ -237,7 +237,7 @@ class AddLessonView(View):
                 )
             return
         else:
-            self.add_disabled_btn(f"in {states['selected_used_lang']}")
+            self.add_disabled_btn(f"in {states['language_used']}")
 
         if 'is_permanent' not in states:
 
@@ -269,11 +269,11 @@ class AddLessonView(View):
 
         # TODO: add select to get month + date (listing the next 30 days)
         # ..... when it is an extra class
-        if 'week_day' not in states and 'date_to_occur' not in states:
+        if 'day_of_week' not in states and 'date_to_occur' not in states:
             if states['is_permanent']:
                 async def set_week_day(self):
                     self.states['date_to_occur'] = None
-                    self.states['week_day'] = self.values[0]
+                    self.states['day_of_week'] = self.values[0]
                     times = await TeacherDB.get_available_hours(**self.states)
                     self.states['times'] = times
 
@@ -299,7 +299,7 @@ class AddLessonView(View):
                     d = date.fromisoformat(self.values[0])
                     self.states['date_to_occur'] = self.values[0]
                     self.states['date_to_occur_pretty'] = d.strftime("%d of %B")
-                    self.states['week_day'] = d.strftime("%A")
+                    self.states['day_of_week'] = d.strftime("%A")
                     times = await TeacherDB.get_available_hours(**self.states)
                     self.states['times'] = times
 
@@ -325,7 +325,7 @@ class AddLessonView(View):
             return
         else:
             if states['is_permanent']:
-                self.add_disabled_btn(f"on {states['week_day']}s")
+                self.add_disabled_btn(f"on {states['day_of_week']}s")
             else:
                 self.add_disabled_btn(f"on {states['date_to_occur_pretty']}")
 
@@ -344,7 +344,8 @@ class AddLessonView(View):
                     row=1,
                     options=[
                         discord.SelectOption(
-                            label=str(value)+' h',
+                            # label=str(value)+' h',
+                            label=ampm_time(value),
                             value=value
                         )
                         for value in states['times']
@@ -354,7 +355,7 @@ class AddLessonView(View):
             return
         else:
             time = states['time']
-            self.add_disabled_btn(f"at {time} h")
+            self.add_disabled_btn(f"at {ampm_time(time)}")
 
 
         if 'ok' not in states:
@@ -384,7 +385,8 @@ class AddLessonView(View):
             if states['ok']:
                 self.add_disabled_btn(f"Finished!", color=discord.ButtonStyle.green, row=1)
             else:
-                self.add_disabled_btn(f"Not sent!\n{states['not_ok_feedback']}", color=discord.ButtonStyle.red, row=1)
+                fdbk = states['not_ok_feedback']
+                self.add_disabled_btn(f"Not sent!{' '+fdbk if fdbk else ''}", color=discord.ButtonStyle.red, row=1)
 
 
 class ClassManagementSelect(Select):
@@ -428,24 +430,23 @@ async def send_new_class_request(self, interaction: discord.Interaction):
     member = interaction.user
 
     states = self.states
-    is_permanent = states['is_permanent']
 
-    # has_similar = await TeacherDB.get_similar_lesson_approval_request(member.id, states['selected_lang'], states['selected_used_lang'], states['week_day'], states['time'], is_permanent)
+    # has_similar = await TeacherDB.get_similar_lesson_approval_request(member.id, states['language'], states['language_used'], states['day_of_week'], states['time'], is_permanent)
 
     # setting 0 as message_id because the message was not sent yet
     # if you send the message into thhe approval channel, you can use here
     # the message id. This will prevent from using the lastrowid property
     # within the embed without having to send+edit the discord message
-    lastrowid = await TeacherDB.insert_lesson_approval_request(member.id, member.name, states['selected_lang'], states['selected_used_lang'], states['week_day'], states['time'], is_permanent, 0, states['date_to_occur'])
+    states['id'] = await TeacherDB.insert_lesson_approval_request(member.id, member.name, states['language'], states['language_used'], states['day_of_week'], states['time'], states['is_permanent'], 0, states['date_to_occur'])
 
-    if lastrowid is None:
-        self.states['ok'] = False
-        self.states['not_ok_feedback'] = "There's still a similar recent request you sent under review!"
+    if states['id'] is None:
+        states['ok'] = False
+        states['not_ok_feedback'] = "There's still a similar recent request you sent under review!"
 
         await interaction.response.edit_message(
             embed=self.embed,
             view=AddLessonView(
-                self.states,
+                states,
                 self.embed,
                 self.client,
                 langs=self.langs
@@ -453,56 +454,64 @@ async def send_new_class_request(self, interaction: discord.Interaction):
         )
         return
 
-    self.states['ok'] = True
+    states['ok'] = True
 
     await interaction.response.edit_message(
         embed=self.embed,
         view=AddLessonView(
-            self.states,
+            states,
             self.embed,
             self.client,
             langs=self.langs
         )
     )
 
+    await send_request_in_approval_channel(states, member, self.client, self.langs)
 
-    # await TeacherDB.insert_lesson_approval_request(member.id, member.name, states['selected_lang'], states['selected_used_lang'], states['week_day'], states['time'], is_active)
 
-    if is_permanent:
+async def send_request_in_approval_channel(states, member, client, langs=None):
+
+    # | teacher_id         | teacher_name | language  | language_used | day_of_week | time | is_permanent | datetime_of_request | date_to_occur |
+
+
+    if states['is_permanent']:
         color=discord.Colour.from_rgb(234,72,223)
     else:
         color=discord.Colour.from_rgb(45,160,226)
 
 
-    langroles = [x.name for x in member.roles if x.name.startswith('Native') or x.name.startswith('Fluent')]
-    langroles_str = '**'+'**,**'.join(langroles)+'**' if len(langroles) else ''
+    # langroles = [x.name for x in member.roles if x.name.startswith('Native') or x.name.startswith('Fluent')]
+    # langroles_str = '**'+'**,**'.join(langroles)+'**' if len(langroles) else ''
 
-    nick = "**"+member.nick+"**" if member.nick else ''
+    # nick = "**"+member.nick+"**" if member.nick else ''
 
-    # embed = discord.Embed(title=f'{member.name}',
-                          # description=f"Requested for adding {['an Extra','a Permanent'][states['is_permanent']]} class:", color=color
+    # the key below is set inside the DB call get_class_request and get_all_class_requests
+    timestamp = states['datetime_of_request'] if 'datetime_of_request' in states else None
+
     embed = discord.Embed(
-        title=f"Request #{lastrowid}:\t\t\t\t\t\tAdd {['Extra','Permanent'][is_permanent]} class",
-        # description=f"Check the [TLS Tracker](https://thelanguagesloth.com/tracker) for any inconsistences the bot couldn't get\n\n<@{member.id}> wants to add a new class",
+        title=f"Request #{states['id']}:\t\t\t\t\t\tAdd {['Extra','Permanent'][states['is_permanent']]} class",
         description=f"<@{member.id}> wants to add a new class",
-        color=color)
-
-    if is_permanent:
-        embed.add_field(name='Class Info:',value=f"They want to teach **{states['selected_lang']}** using **{states['selected_used_lang']}**\n at **{states['time']}:00** __every__ **{states['week_day']}**", inline=False)
-    else:
-        embed.add_field(name='Class Info:',value=f"They want to teach **{states['selected_lang']}** using **{states['selected_used_lang']}**\n at **{states['time']}:00** __on__ **{states['date_to_occur_pretty']}, {states['week_day']}**", inline=False)
+        color=color, timestamp=timestamp)
 
 
-    embed.add_field(name='Teacher Info',value=f"Server nick: {nick}\nAccount nick: **{member.name}**\nRoles: {langroles_str}", inline=False)
+
+    time_str = f", {states['date_to_occur_pretty']}" if not states['is_permanent'] else ''
+
+    embed.add_field(name='Class Info:',value=f"Language: {states['language']}\nIn: {states['language_used']}\nTime: {ampm_time(states['time'])} {states['day_of_week']}"+time_str, inline=False)
+
+    # NOTE: below are prettier and human-friendlier texts
+    # ..... don't delete them, bc we might need to use them back
+    # if states['is_permanent']:
+    #     embed.add_field(name='Class Info:',value=f"They want to teach **{states['language']}** using **{states['language_used']}**\n at **{states['time']}:00** __every__ **{states['day_of_week']}**", inline=False)
+    # else:
+    #     embed.add_field(name='Class Info:',value=f"They want to teach **{states['language']}** using **{states['language_used']}**\n at **{states['time']}:00** __on__ **{states['date_to_occur_pretty']}, {states['day_of_week']}**", inline=False)
+
+
+    # embed.add_field(name='Teacher Info',value=f"Server nick: {nick}\nAccount nick: **{member.name}**\nRoles: {langroles_str}", inline=False)
 
     embed.set_footer(text="Check the TLS Tracker for any inconsistences the bot couldn't get")
 
-    # embed.add_field(name='language_used',value=states['selected_used_lang'])
-    # embed.add_field(name='day',value=states['week_day'])
-    # embed.add_field(name='time',value=states['time'])
-    # embed.add_field(name='permanent',value=is_permanent)
     embed.set_thumbnail(url=member.avatar.url)
-    # embed.set_author(name=f"{member.nick or member.name}")
     embed.set_author(name='Link to TLS Tracker', url=f"https://thelanguagesloth.com/tracker", icon_url='https://thelanguagesloth.com/static/assets/images/favicon.png')
 
 
@@ -511,8 +520,8 @@ async def send_new_class_request(self, interaction: discord.Interaction):
         custom_id='approve_new_class_request_id',
         states=states,
         embed=embed,
-        client=self.client,
-        langs=self.langs,
+        client=client,
+        langs=langs,
         func=approve_new_class_request,
         style=discord.ButtonStyle.green,
         label='Approve',
@@ -522,23 +531,24 @@ async def send_new_class_request(self, interaction: discord.Interaction):
         custom_id='deny_new_class_request_id',
         states=states,
         embed=embed,
-        client=self.client,
-        langs=self.langs,
+        client=client,
+        langs=langs,
         func=deny_new_class_request,
         style=discord.ButtonStyle.red,
         label='Deny',
         emoji='\U0001F590'
     ))
 
-    app_channel = self.client.get_channel(class_management_approval_channel_id)
+    app_channel = client.get_channel(class_management_approval_channel_id)
     msg = await app_channel.send(embed=embed, view=view)
 
-    await TeacherDB.update_msg_id_lesson_approval_request(lastrowid, msg.id)
+    await TeacherDB.update_msg_id_lesson_approval_request(states['id'], msg.id)
 
 
 
 async def cancel_new_class_request(self, interaction: discord.Interaction):
     self.states['ok'] = False
+    self.states['not_ok_feedback'] = ''
 
     await interaction.response.edit_message(
         embed=self.embed,
@@ -562,33 +572,18 @@ async def approve_new_class_request(self, interaction: discord.Interaction):
 
     msg = interaction.message
 
-    # embed = msg.embeds[0].to_dict()
-    # fields = {}
-    # for field in embed['fields']:
-    #     fields[field['name']]=field['value']
-    # pprint(fields)
+    request = await TeacherDB.get_class_request(msg.id)
+    if request is not None:
+        inserted = await TeacherDB.approve_permanent_class_request(msg.id)
 
-    inserted = False
-    # NOTE: all fields in `fields` have strings as values
-    # if fields['permanent'] == 'True':
-    #     pass
-    #     # inserted = await TeacherDB.approve_permanent_class_request(msg.id)
-    #     # inserted = await TeacherDB.insert_permanent_class(
-    #     #     fields['id'], fields['name'], fields['language'], fields['language_used'], fields['day'], fields['time'], True
-    #     # )
-    # else:
-    #     # await TeacherDB.insert_extra_class(
-    #     #     fields['id'], fields['name'], fields['language'], fields['language_used'], fields['day'], fields['time'], True
-    #     # )
-    #     pass
-    inserted = await TeacherDB.approve_permanent_class_request(msg.id)
-
+    btnstyle = discord.ButtonStyle.grey if request is None else discord.ButtonStyle.blurple if inserted else discord.ButtonStyle.red
+    btnlabel = "This message isn't associated with a request anymore!" if request is None else f'Approved by {member.name}' if inserted else 'Some error ocurred!'
 
     view = View(timeout=None)
     view.add_item(Button(
         disabled=True,
-        style=discord.ButtonStyle.blurple if inserted else discord.ButtonStyle.gray,
-        label=f'Approved by {member.name}' if inserted else 'Class already exists!',
+        style=btnstyle,
+        label=btnlabel,
         emoji='\U0001F512'
     ))
 
@@ -597,20 +592,42 @@ async def approve_new_class_request(self, interaction: discord.Interaction):
         view=view
     )
 
+    if request is None:
+        return
 
-    # TODO: have a look in the info sent inside "embed". Maybe it would be better to reduce the amount of information  there
-    await member.send('**We are happy to tell you that your request was approved!\nYou can look it in the [TLS calendar](https://thelanguagesloth.com/class/calendar/)**',embed=msg.embeds[0])
+    extend_request_as_in_view(request)
+
+    embed = discord.Embed(
+        title=f"Approved Request #{request['id']}:\t\t\tAdd {['Extra','Permanent'][request['is_permanent']]} class",
+        description=f"We are happy to inform that your request was approved!\nYou can look it in [TLS calendar](https://thelanguagesloth.com/class/calendar/)\nIf you have any questions, please, contact the Lesson Management Team <#here> (= some general channel)",
+        color=discord.Colour.from_rgb(46,242,52))
+
+    await feedback_teacher_request_embed(embed, request)
+
+    try:
+        await member.send(embed=embed)
+    except discord.errors.Forbidden as e:
+        print(f'Member {member.name} has blocked their DM')
+        pass
+
 
 
 async def deny_new_class_request(self, interaction: discord.Interaction):
     member = interaction.user
-    print('gostei desse babaca nao')
     msg = interaction.message
+
+    request = await TeacherDB.get_class_request(msg.id)
+    if request is not None:
+        deleted = await TeacherDB.deny_class_request(msg.id)
+
+    btnstyle = discord.ButtonStyle.grey if request is None else discord.ButtonStyle.red
+    btnlabel = "This message isn't associated with a request anymore!" if request is None else f'Denied by {member.name}'
+
     view = View(timeout=None)
     view.add_item(Button(
         disabled=True,
-        style=discord.ButtonStyle.red,
-        label=f'Denied by {member.name}',
+        style=btnstyle,
+        label=btnlabel,
         emoji='\U0001F512'
     ))
 
@@ -619,19 +636,75 @@ async def deny_new_class_request(self, interaction: discord.Interaction):
         view=view
     )
 
-    await TeacherDB.deny_class_request(msg.id)
+    if request is None:
+        return
 
-    # TODO: have a look in the info sent inside "embed". Maybe it would be better to reduce the amount of information  there
-    await member.send('**We are sorry to inform you that your request was denied.\nPlease review your request and check the [TLS calendar](https://thelanguagesloth.com/class/calendar/) to solve probable conflicting class hours. Remember: all classes are in CET time zone. If you have any questions, please, contact the Lesson Management Team #here (= some channel)**',embed=msg.embeds[0])
+    extend_request_as_in_view(request)
+
+    thread_name = f"Denied Add #{request['id']}"
+
+    thread = await create_thread_with_teacher(msg, member, thread_name)
+
+    embed = discord.Embed(
+        title=f"Denied Request #{request['id']}:\t\t\tAdd {['Extra','Permanent'][request['is_permanent']]} class",
+        description=f"We are sorry to inform that your request was denied.\n\nPlease review your request and check [TLS calendar](https://thelanguagesloth.com/class/calendar/) to solve probable conflicting class hours. __Remember: all classes are in CET time zone.__\n\nGet in touch with the Lesson Management Team here <#{thread.id}>",
+        color=discord.Colour.from_rgb(219,104,98))
+
+    await feedback_teacher_request_embed(embed, request)
+
+    try:
+        await member.send(embed=embed)
+    except discord.errors.Forbidden as e:
+        print(f'Member {member.name} has blocked their DM')
+        pass
 
 
-# TODO: this function below should only send a message
-# ..... in teacher's DM to let they know whether the
-# ..... Request was approved or denied
-async def feedback_teacher_request(member, txt):
+async def feedback_teacher_request_embed(embed, states):
 
+    if states['is_permanent']:
+        embed.add_field(name='Request Info:',value=f"You wanted to teach **{states['language']}** using **{states['language_used']}**\n at **{ampm_time(states['time'])}** __every__ **{states['day_of_week']}**", inline=False)
+    else:
+        embed.add_field(name='Request Info:',value=f"You wanted to teach **{states['language']}** using **{states['language_used']}**\n at **{ampm_time(states['time'])}** __on__ **{states['date_to_occur_pretty']}, {states['day_of_week']}**", inline=False)
+
+
+    # embed.add_field(name='Teacher Info',value=f"Server nick: {nick}\nAccount nick: **{member.name}**\nRoles: {langroles_str}", inline=False)
+
+    # embed.set_footer(text="Check the TLS Calendar to make sure your request fits the schedule")
+
+    # embed.set_thumbnail(url=member.avatar.url)
+    # embed.set_author(name='Link to TLS Calendar', url=f"https://thelanguagesloth.com/calendar", icon_url='https://thelanguagesloth.com/static/assets/images/favicon.png')
     pass
 
+
+async def create_thread_with_teacher(msg, member, name):
+    channel = msg.channel
+
+    welcome_text = f"{member.mention} <@&{lesson_management_role_id}>"
+
+    try:
+        # PRIVATE WAY
+
+        # DNK: make things in a private thread?
+        # .... I think we test it before, because maybe letting them
+        # .... might allow other teachers to help and improve the environment
+        thread = await channel.start_thread(name=name)
+        # await thread.add_user(member)
+
+
+    except discord.errors.HTTPException as e:
+        # PUBLIC WAY
+
+        # NOTE: I'm creating another message with the embed, because there's no way of getting the message that created a thread after this point, not even by reading the history, so we simply copy the same embed into the thread's first message. This way, even when the administrator purges the approval channel, there will still be information about the request in the thread
+
+        # thread = await msg.start_thread(name=name)
+
+        reply = await msg.reply('Opening a thread!')
+        thread = await reply.start_thread(name=name)
+
+    await thread.send(content=welcome_text, embed=msg.embeds[0])
+    # await thread.send(content=welcome_text, embeds=msg.embeds, view=View.from_message(msg, timeout=0))
+
+    return thread
 
 
 def get_future_dates():
@@ -643,3 +716,14 @@ def get_future_dates():
         l.append((today+dt*i))
 
     return l
+
+def extend_request_as_in_view(request):
+    if not request['is_permanent']:
+        # d = date.fromisoformat(request['date_to_occur'])
+        d = request['date_to_occur']
+        request['date_to_occur_pretty'] = d.strftime("%d of %B")
+    pass
+
+def ampm_time(time: int):
+    time = int(time)
+    return f"{time%12 or 12}" + ("AM" if time<12 else "PM")

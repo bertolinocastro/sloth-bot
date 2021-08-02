@@ -97,7 +97,7 @@ class TeacherDB:
         mycursor, db = await the_database()
         # query below is the same in get_similar_lesson_approval_request
         await mycursor.execute("""
-            SELECT EXISTS(SELECT * FROM LessonApprovalRequests WHERE teacher_id = %s AND language = %s AND language_used = %s AND day_of_week = %s AND time = %s AND is_permanent = %s AND date_to_occur = %s AND TIMESTAMPDIFF(DAY, datetime_of_request,NOW()) < 1)
+            SELECT EXISTS(SELECT * FROM LessonApprovalRequests WHERE teacher_id = %s AND language = %s AND language_used = %s AND day_of_week = %s AND time = %s AND is_permanent = %s AND IF(date_to_occur is NULL, TRUE, date_to_occur = %s) AND TIMESTAMPDIFF(DAY, datetime_of_request,NOW()) < 1)
             """, (teacher_id, language, language_used, day_of_week, time, is_permanent, date_to_occur))
         exist = await mycursor.fetchall()
         if exist[0][0]:
@@ -137,12 +137,6 @@ class TeacherDB:
         return exist[0][0]
 
 
-    # @staticmethod
-    # async def define_procedure_for_generic_class_insertion():
-    #     mycursor, db = await the_database()
-    #     await mycursor.execute("CREATE TEMPORARY TABLE record SELECT * FROM LessonApprovalRequests WHERE message_id = %s; SELECT is_permanent FROM record", (message_id,))
-    #     pass
-
 
     @staticmethod
     async def approve_permanent_class_request(message_id):
@@ -150,44 +144,18 @@ class TeacherDB:
         mycursor, db = await the_database()
         try:
             await db.begin()
-            # await mycursor.execute("CREATE TEMPORARY TABLE record SELECT * FROM LessonApprovalRequests WHERE message_id = %s; SELECT is_permanent FROM record", (message_id,))
-            # is_permanent = await mycursor.fetchall()
-            # print('criou temp')
-            # pprint(is_permanent)
             await mycursor.execute("""
                 INSERT INTO PermanentClasses (teacher_id, teacher_name, language, language_used, day_of_week, time, is_active)
                     SELECT teacher_id, teacher_name, language, language_used, day_of_week, time, TRUE
-                    FROM LessonApprovalRequests WHERE message_id = %s AND is_permanent = TRUE;
+                    FROM LessonApprovalRequests AS lar WHERE message_id = %s AND is_permanent = TRUE AND NOT EXISTS(
+                        SELECT * FROM PermanentClasses WHERE teacher_id = lar.teacher_id AND teacher_name = lar.teacher_name AND language = lar.language AND language_used = lar.language_used AND day_of_week = lar.day_of_week AND time = lar.time AND is_active = TRUE
+                    );
 
                 INSERT INTO ExtraClasses (teacher_id, teacher_name, language, language_used, time, date_to_occur)
                     SELECT teacher_id, teacher_name, language, language_used, time, date_to_occur
-                    FROM LessonApprovalRequests WHERE message_id = %s AND is_permanent = FALSE""", (message_id, message_id))
-            # # if is_permanent[0][0]:
-            #     await mycursor.execute("""
-            #         INSERT INTO PermanentClasses (teacher_id, teacher_name, language, language_used, day_of_week, time, is_active)
-            #             SELECT teacher_id, teacher_name, language, language_used, day_of_week, time, TRUE
-            #             FROM record""")
-            # # else:
-            #     await mycursor.execute("""
-            #         INSERT INTO ExtraClasses (teacher_id, teacher_name, language, language_used, time, date_to_occur)
-            #             SELECT teacher_id, teacher_name, language, language_used, time, date_to_occur
-            #             FROM record""")
-
-            # await mycursor.execute("PREPARE insert_generic FROM 'INSERT IGNORE INTO ?(teacher_id, teacher_name, language, language_used, day_of_week, time, is_active) SELECT * FROM record'", (message_id,))
-            # print('criou preparou')
-            # await mycursor.execute(
-            #     """
-            #     EXECUTE insert_generic USING IF((SELECT is_permanent FROM record LIMIT 1) <> 0, 'PermanentClasses', 'ExtraClasses')
-            #     """)
-            # print('executou')
-            # await mycursor.execute('DEALLOCATE PREPARE insert_generic')
-            print('dealocou')
-            # await mycursor.execute(
-            #     """
-            #     INSERT INTO PermanentClasses (teacher_id, teacher_name, language, language_used, day_of_week, time, is_active)
-            #         SELECT teacher_id, teacher_name, language, language_used, day_of_week, time, TRUE
-            #         FROM LessonApprovalRequests
-            #         WHERE message_id = %s""", (message_id,))
+                    FROM LessonApprovalRequests AS lar WHERE message_id = %s AND is_permanent = FALSE AND NOT EXISTS(
+                        SELECT * FROM ExtraClasses WHERE teacher_id = lar.teacher_id AND teacher_name = lar.teacher_name AND language = lar.language AND language_used = lar.language_used AND time = lar.time AND date_to_occur = lar.date_to_occur
+                    )""", (message_id, message_id))
             await mycursor.execute("""
                 DELETE FROM LessonApprovalRequests
                     WHERE message_id = %s""", (message_id,))
@@ -210,8 +178,30 @@ class TeacherDB:
             DELETE FROM LessonApprovalRequests
                 WHERE message_id = %s""", (message_id,))
         await db.commit()
+        rowcount = mycursor.rowcount
         await mycursor.close()
+        return rowcount > 0
 
+
+    @staticmethod
+    async def get_class_request(message_id):
+        keys = ['id','teacher_id', 'teacher_name', 'language', 'language_used', 'day_of_week', 'time', 'is_permanent', 'datetime_of_request', 'date_to_occur', 'message_id']
+
+        request = await TeacherDB.fetchall('SELECT %s FROM LessonApprovalRequests WHERE message_id = %s'%(','.join(keys), message_id))
+
+        if len(request):
+            return dict(zip(keys, request[0]))
+
+        return None
+
+
+    @staticmethod
+    async def get_all_class_requests():
+        keys = ['id','teacher_id', 'teacher_name', 'language', 'language_used', 'day_of_week', 'time', 'is_permanent', 'datetime_of_request', 'date_to_occur', 'message_id']
+
+        requests = await TeacherDB.fetchall('SELECT %s FROM LessonApprovalRequests'%(','.join(keys),))
+
+        return [dict(zip(keys, req)) for req in requests]
 
 
     @staticmethod
@@ -263,7 +253,7 @@ class TeacherDB:
 
 
     @staticmethod
-    async def get_available_hours(selected_lang, selected_used_lang, is_permanent, week_day, date_to_occur=None, **kwargs):
+    async def get_available_hours(language, language_used, is_permanent, day_of_week, date_to_occur=None, **kwargs):
         """Extra class must set date_to_occur"""
 
         # assert is_permanent, "Must implement extra classes in the database first!"
@@ -274,7 +264,7 @@ class TeacherDB:
         # TODO: implement what muffin said about different classes with different used_languages
         # "if is_permanent else 'ExtraClasses'"
         table_info = await TeacherDB.fetchall(
-            f"SELECT DISTINCT(time) FROM PermanentClasses WHERE language = '{selected_lang}' AND day_of_week = '{week_day}' AND is_active = TRUE"
+            f"SELECT DISTINCT(time) FROM PermanentClasses WHERE language = '{language}' AND day_of_week = '{day_of_week}' AND is_active = TRUE"
         )
         #TODO: implement the limitation of 3 classes at the same time on the same day
 
