@@ -3,11 +3,13 @@ from discord.ext import commands, menus, tasks
 from discord.ui import View, Button, Select
 from discord.ext import commands, tasks
 from extra.teacherDB import TeacherDB
+from extra.calendarapi import Calendar
 
 from mysqldb import *
 import asyncio
 
-from datetime import date, timedelta#, datetime
+from datetime import date, timedelta, datetime
+from pytz import timezone
 
 import linecache
 import sys
@@ -43,9 +45,19 @@ class ChannelLessonManagementView(View):
         pass
 
 
-    async def teacher_classes_overview_embed(self, member):
+    async def teacher_classes_overview_embed(self, member, ret_classes=None):
 
-        classes = await TeacherDB.get_teacher_classes(member.id)
+        perma, extra = await TeacherDB.get_teacher_classes(member.id)
+
+        if ret_classes is not None:
+            ret_classes['permanent'] = [{'class_id':i,'language':l,'language_used':u,'day_of_week':d,'time':t} for i,l,u,d,t in perma]
+
+            ret_classes['extra'] = [{'class_id':i,'language':l,'language_used':u,'date_to_occur':d,'time':t} for i,l,u,d,t in extra]
+
+
+        perma_str = '\n'.join([f'{j}) {l} in {u}: {d}s at {ampm_time(t)}' for j,(i,l,u,d,t) in enumerate(perma)]) if perma else 'Empty'
+
+        extra_str = '\n'.join([f'{j}) {l} in {u}: {d.strftime("%A, %d of %B")} at {ampm_time(t)}' for j,(i,l,u,d,t) in enumerate(extra)]) if extra else 'Empty'
 
         embed = discord.Embed(
             title="**Your current schedule is:**",
@@ -53,7 +65,7 @@ class ChannelLessonManagementView(View):
             color=discord.Colour.from_rgb(234,72,223)
         )
 
-        if classes is None:
+        if perma is None and extra is None:
             embed.add_field(
                 name=':calendar_spiral: You have no classes registered!',
                 value='Please ask lesson management to work with it out',
@@ -63,12 +75,12 @@ class ChannelLessonManagementView(View):
 
         embed.add_field(
             name=':calendar_spiral: Permament classes',
-            value=classes['permanent'],
+            value=perma_str,
             inline=False
         )
         embed.add_field(
             name=':calendar_spiral: Extra classes',
-            value=classes['extra'],
+            value=extra_str,
             inline=False
         )
 
@@ -131,28 +143,6 @@ class ChannelLessonManagementView(View):
 
     @discord.ui.button(
         style=discord.ButtonStyle.green,
-        label='Delete a class',
-        disabled=False,
-        custom_id='clmv_del_class',
-        emoji='\U0001F4E4',
-        row=0
-    )
-    async def del_class(self, btn: Button, interaction: discord.Interaction):
-        ''' Handles Class Management related . '''
-
-        if not interaction.guild_id or not interaction.user or \
-            interaction.user.bot:
-            return
-
-
-        member = interaction.user
-
-
-        await interaction.response.send_message('del', ephemeral=True)
-
-
-    @discord.ui.button(
-        style=discord.ButtonStyle.green,
         label='Pause/Cancel a class',
         disabled=False,
         custom_id='clmv_cancel_class',
@@ -170,8 +160,38 @@ class ChannelLessonManagementView(View):
         # member = payload.member
         member = interaction.user
 
+        await interaction.response.send_message('pause/cancel', ephemeral=True)
 
-        await interaction.response.send_message('cancel', ephemeral=True)
+        await Calendar.test()
+
+
+
+    @discord.ui.button(
+        style=discord.ButtonStyle.green,
+        label='Delete a class',
+        disabled=False,
+        custom_id='clmv_del_class',
+        emoji='\U0001F4E4',
+        row=0
+    )
+    async def del_class(self, btn: Button, interaction: discord.Interaction):
+        ''' Handles Class Management related . '''
+
+        if not interaction.guild_id or not interaction.user or \
+            interaction.user.bot:
+            return
+
+
+        member = interaction.user
+
+        classes = {}
+        embed = await self.teacher_classes_overview_embed(member, ret_classes=classes)
+
+        request = {}
+        view = DelLessonView(request, embed, self.client, classes)
+
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 
@@ -202,6 +222,7 @@ class AddLessonView(View):
                         langs,
                         func=set_language,
                         client=client,
+                        constructor=AddLessonView,
                         placeholder='Select a language',
                         # custom_id=f'clmv_sel_lang_{i}',
                         options=[
@@ -229,6 +250,7 @@ class AddLessonView(View):
                         langs,
                         func=set_language_used,
                         client=client,
+                        constructor=AddLessonView,
                         placeholder='Select the language you will speak',
                         # custom_id=f'clmv_sel_used_lang_{i}',
                         options=[
@@ -255,6 +277,7 @@ class AddLessonView(View):
                     langs,
                     func=set_is_permanent,
                     client=client,
+                    constructor=AddLessonView,
                     placeholder='Is it a permanent class?',
                     row=1,
                     options=[
@@ -271,8 +294,6 @@ class AddLessonView(View):
             is_permanent = states['is_permanent']
             self.add_disabled_btn(f"{['as extra','permanently'][is_permanent]}")
 
-        # TODO: add select to get month + date (listing the next 30 days)
-        # ..... when it is an extra class
         if 'day_of_week' not in states and 'date_to_occur' not in states:
             if states['is_permanent']:
                 async def set_week_day(self):
@@ -288,6 +309,7 @@ class AddLessonView(View):
                         langs,
                         func=set_week_day,
                         client=client,
+                        constructor=AddLessonView,
                         placeholder='Select a week day',
                         row=1,
                         options=[
@@ -314,6 +336,7 @@ class AddLessonView(View):
                         langs,
                         func=set_date_to_occur,
                         client=client,
+                        constructor=AddLessonView,
                         placeholder='Select a date',
                         row=1,
                         # max_values=21,
@@ -344,6 +367,7 @@ class AddLessonView(View):
                     langs,
                     func=set_time,
                     client=client,
+                    constructor=AddLessonView,
                     placeholder='Select an available time',
                     row=1,
                     options=[
@@ -393,8 +417,146 @@ class AddLessonView(View):
                 self.add_disabled_btn(f"Not sent!{' '+fdbk if fdbk else ''}", color=discord.ButtonStyle.red, row=1)
 
 
+class DelLessonView(View):
+
+    def add_disabled_btn(self, label, row=None, color=discord.ButtonStyle.blurple, emoji=None):
+        self.add_item(Button(
+            disabled=True,
+            style=color,
+            label=label,
+            row=row,
+            emoji=emoji
+        ))
+
+
+    def __init__(self, request, embed, client, classes):
+        super().__init__(timeout=120)
+
+        if 'is_permanent' not in request:
+
+            async def set_is_permanent(self):
+                self.states['is_permanent'] = self.values[0] == 'True'
+
+            self.add_item(
+                ClassManagementSelect(
+                    request,
+                    embed,
+                    classes,
+                    func=set_is_permanent,
+                    client=client,
+                    constructor=DelLessonView,
+                    placeholder='Is it a permanent class?',
+                    row=0,
+                    options=[
+                        discord.SelectOption(
+                            label=label,
+                            value=value
+                        )
+                        for label, value in [['Yes', True], ['No', False]]
+                    ]
+                )
+            )
+            return
+        else:
+            is_permanent = request['is_permanent']
+            self.add_disabled_btn(f"Deleting the {['extra','permanent'][is_permanent]} classes:")
+
+        is_permanent = request['is_permanent']
+
+        if 'class_indexes' not in request:
+            async def set_class(self):
+                self.states['class_indexes'] = self.values
+
+            mykey = 'permanent' if is_permanent else 'extra'
+            opts = classes[mykey][:25] # limiting up to 25 entries, bc I'm lazy to code any workaround for teachers with more than 25 classes (which is definitely uncommon tbh)
+            pprint(opts)
+
+            self.add_item(
+                ClassManagementSelect(
+                    request,
+                    embed,
+                    classes,
+                    func=set_class,
+                    client=client,
+                    constructor=DelLessonView,
+                    placeholder='Select a class to delete',
+                    max_values=len(opts),
+                    options=[
+                        discord.SelectOption(
+                            label=i
+                        )
+                        for i, value in enumerate(opts)
+                    ]
+                )
+            )
+            return
+        else:
+            for i in request['class_indexes']:
+                self.add_disabled_btn(i)
+
+        if '1st_check' not in request:
+            self.add_item(CLMVConfirm(
+                request,
+                embed,
+                client=client,
+                langs=classes,
+                func=del_class_1st_check_yes,
+                style=discord.ButtonStyle.grey,
+                label='Delete class?',
+                emoji='\U0001F625',
+                row=1
+            ))
+            self.add_item(CLMVConfirm(
+                request,
+                embed,
+                client=client,
+                langs=classes,
+                func=del_class_1st_check_no,
+                style=discord.ButtonStyle.red,
+                label='STOP',
+                emoji='\U0001F590',
+                row=1
+            ))
+            return
+        else:
+            if not request['1st_check']:
+                self.add_disabled_btn(f"Thanks!", color=discord.ButtonStyle.green, row=1, emoji='\U0001F973')
+                return
+
+        if 'ok' not in request :
+            self.add_item(CLMVConfirm(
+                request,
+                embed,
+                client=client,
+                langs=classes,
+                func=continue_del_class_request,
+                style=discord.ButtonStyle.blurple,
+                label='Yes, I\'m sure!',
+                emoji='\U0001F62D',
+                row=1
+            ))
+            self.add_item(CLMVConfirm(
+                request,
+                embed,
+                client=client,
+                langs=classes,
+                func=cancel_del_class_request,
+                style=discord.ButtonStyle.red,
+                label='No, I regret!',
+                emoji='\U0001F97A',
+                row=1
+            ))
+        else:
+            if request['ok']:
+                self.add_disabled_btn(f"Deleted", color=discord.ButtonStyle.green, row=1)
+            else:
+                fdbk = request['not_ok_feedback']
+                self.add_disabled_btn(f"Not deleted!{' '+fdbk if fdbk else ''}", color=discord.ButtonStyle.red, row=1, emoji='\U0001F973')
+
+
+
 class ClassManagementSelect(Select):
-    def __init__(self, states, embed, langs, client, func, *args, **kwargs):
+    def __init__(self, states, embed, langs, client, func, constructor, *args, **kwargs):
         super().__init__(*args,**kwargs)
         self.states = states
         self.embed = embed
@@ -402,12 +564,16 @@ class ClassManagementSelect(Select):
         self.func = func
         self.client = client
 
+        def wrapper(states, embed, client, langs):
+            return constructor(states, embed, client, langs)
+        self.constructor = wrapper
+
     async def callback(self, interaction: discord.Interaction):
         await self.func(self)
 
         await interaction.response.edit_message(
             embed=self.embed,
-            view=AddLessonView(
+            view=self.constructor(
                 self.states,
                 self.embed,
                 self.client,
@@ -548,6 +714,9 @@ async def send_request_in_approval_channel(states, member, client, langs=None):
 
     await TeacherDB.update_msg_id_lesson_approval_request(states['id'], msg.id)
 
+    request = await TeacherDB.get_class_request(msg.id)
+    event = await Calendar.add_class(request, to_be_approved=True)
+
 
 
 async def cancel_new_class_request(self, interaction: discord.Interaction):
@@ -578,7 +747,7 @@ async def approve_new_class_request(self, interaction: discord.Interaction):
 
     request = await TeacherDB.get_class_request(msg.id)
     if request is not None:
-        inserted = await TeacherDB.approve_permanent_class_request(msg.id)
+        inserted = await TeacherDB.approve_class_request(msg.id)
 
     btnstyle = discord.ButtonStyle.grey if request is None else discord.ButtonStyle.blurple if inserted else discord.ButtonStyle.red
     btnlabel = "This message isn't associated with a request anymore!" if request is None else f'Approved by {member.name}' if inserted else 'Some error ocurred!'
@@ -598,6 +767,8 @@ async def approve_new_class_request(self, interaction: discord.Interaction):
 
     if request is None:
         return
+
+    event = await Calendar.add_class(request)
 
     extend_request_as_in_view(request)
 
@@ -713,7 +884,7 @@ async def create_thread_with_teacher(msg, member, name):
 
 def get_future_dates():
 
-    today = date.today()
+    today = datetime.now(timezone('Europe/Berlin')).date()
     dt = timedelta(days=1)
     l = []
     for i in range(21):
@@ -731,3 +902,69 @@ def extend_request_as_in_view(request):
 def ampm_time(time: int):
     time = int(time)
     return f"{time%12 or 12}" + ("AM" if time<12 else "PM")
+
+
+
+async def continue_del_class_request(self, interaction: discord.Interaction):
+    member = interaction.user
+
+    states = self.states
+    is_permanent = states['is_permanent']
+
+    ids = [self.langs['permanent' if is_permanent else 'extra'][int(i)]['class_id'] for i in states['class_indexes']]
+    pprint(ids)
+
+    states['ok'] = await TeacherDB.delete_class(is_permanent, ids=ids)
+
+    states['not_ok_feedback'] = "Failed to delete" if not states['ok'] else ''
+
+    await interaction.response.edit_message(
+        embed=self.embed,
+        view=DelLessonView(
+            states,
+            self.embed,
+            self.client,
+            classes=self.langs
+        )
+    )
+
+
+async def cancel_del_class_request(self, interaction: discord.Interaction):
+    self.states['ok'] = False
+    self.states['not_ok_feedback'] = ''
+
+    await interaction.response.edit_message(
+        embed=self.embed,
+        view=DelLessonView(
+            self.states,
+            self.embed,
+            self.client,
+            classes=self.langs
+        )
+    )
+
+async def del_class_1st_check_yes(self, interaction):
+    self.states['1st_check'] = True
+
+    await interaction.response.edit_message(
+        embed=self.embed,
+        view=DelLessonView(
+            self.states,
+            self.embed,
+            self.client,
+            classes=self.langs
+        )
+    )
+
+async def del_class_1st_check_no(self, interaction):
+    self.states['1st_check'] = False
+
+    await interaction.response.edit_message(
+        embed=self.embed,
+        view=DelLessonView(
+            self.states,
+            self.embed,
+            self.client,
+            classes=self.langs
+        )
+    )

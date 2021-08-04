@@ -117,10 +117,6 @@ class ClassManagement(commands.Cog):
 
         msg = await self.class_mng_channel.send(embed=embed, view=view)
 
-        # self.msg_to_react_id = msg.id
-
-        # await msg.add_reaction(self.classmanagement_emoji)
-
 
     def lesson_mng_embed(self) -> discord.Embed:
         embed = discord.Embed(title='Lesson Management Menu',
@@ -128,9 +124,7 @@ class ClassManagement(commands.Cog):
         embed.add_field(name=':calendar_spiral: Calendar',
                         value='Open the [calendar](https://thelanguagesloth.com/class/calendar/) to see the classes!', inline=False)
         embed.add_field(name=':grey_question: FAQ',
-                        value="1. **I can't see a language to select**\nSloth shows only the languages matching the ones in your roles\n2. **I can't see the time I want to teach**\nSloth shows only available hours based on the day and languages you chose", inline=False)
-        # embed.add_field(name='React below with:',
-        #                 value=self.classmanagement_emoji+' if you want to start to chat directly with me to manage your classes!', inline=False)
+                        value="1. **I can't see a language to select**\nSloth shows only the languages matching the ones in your roles\n2. **I can't see the time I want to teach**\nSloth shows only available hours based on the day and languages you chose, based on rules defined by the Lesson Management Team", inline=False)
 
         return embed
 

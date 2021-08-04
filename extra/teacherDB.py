@@ -28,7 +28,8 @@ class TeacherDB:
                 time TINYINT UNSIGNED NOT NULL,
                 is_active BOOL NOT NULL,
                 date_of_creation DATE NOT NULL DEFAULT (CURRENT_DATE),
-                date_of_inactivation DATE)""")
+                date_of_inactivation DATE,
+                calendar_event_id BIGINT NOT NULL)""")
                 # day_of_week TINYINT UNSIGNED NOT NULL,
         await db.commit()
         await mycursor.close()
@@ -66,7 +67,8 @@ class TeacherDB:
                 language_used VARCHAR(50) NOT NULL,
                 time TINYINT UNSIGNED NOT NULL,
                 date_of_creation DATE NOT NULL DEFAULT (CURRENT_DATE),
-                date_to_occur DATE NOT NULL)""")
+                date_to_occur DATE NOT NULL,
+                calendar_event_id BIGINT NOT NULL)""")
         await db.commit()
         await mycursor.close()
 
@@ -88,6 +90,7 @@ class TeacherDB:
                 datetime_of_request DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
                 date_to_occur DATE,
                 message_id BIGINT NOT NULL)""")
+        await mycursor.execute("""ALTER TABLE LessonApprovalRequests AUTO_INCREMENT=10000""") # adding id constraint due to minimum requirements of 5 characters in Calendar API
         await db.commit()
         await mycursor.close()
 
@@ -139,20 +142,20 @@ class TeacherDB:
 
 
     @staticmethod
-    async def approve_permanent_class_request(message_id):
+    async def approve_class_request(message_id):
 
         mycursor, db = await the_database()
         try:
             await db.begin()
             await mycursor.execute("""
-                INSERT INTO PermanentClasses (teacher_id, teacher_name, language, language_used, day_of_week, time, is_active)
-                    SELECT teacher_id, teacher_name, language, language_used, day_of_week, time, TRUE
+                INSERT INTO PermanentClasses (teacher_id, teacher_name, language, language_used, day_of_week, time, is_active, calendar_event_id)
+                    SELECT teacher_id, teacher_name, language, language_used, day_of_week, time, TRUE, id
                     FROM LessonApprovalRequests AS lar WHERE message_id = %s AND is_permanent = TRUE AND NOT EXISTS(
                         SELECT * FROM PermanentClasses WHERE teacher_id = lar.teacher_id AND teacher_name = lar.teacher_name AND language = lar.language AND language_used = lar.language_used AND day_of_week = lar.day_of_week AND time = lar.time AND is_active = TRUE
                     );
 
-                INSERT INTO ExtraClasses (teacher_id, teacher_name, language, language_used, time, date_to_occur)
-                    SELECT teacher_id, teacher_name, language, language_used, time, date_to_occur
+                INSERT INTO ExtraClasses (teacher_id, teacher_name, language, language_used, time, date_to_occur, calendar_event_id)
+                    SELECT teacher_id, teacher_name, language, language_used, time, date_to_occur, id
                     FROM LessonApprovalRequests AS lar WHERE message_id = %s AND is_permanent = FALSE AND NOT EXISTS(
                         SELECT * FROM ExtraClasses WHERE teacher_id = lar.teacher_id AND teacher_name = lar.teacher_name AND language = lar.language AND language_used = lar.language_used AND time = lar.time AND date_to_occur = lar.date_to_occur
                     )""", (message_id, message_id))
@@ -205,6 +208,26 @@ class TeacherDB:
 
 
     @staticmethod
+    async def delete_class(is_permanent, *, ids=['-1']):
+        # using '-1' because it's an impossile value for the id column, so the delete call will always be false
+        table = 'PermanentClasses' if is_permanent else 'ExtraClasses'
+
+        mycursor, db = await the_database()
+        try:
+            await db.begin()
+            await mycursor.execute("""DELETE FROM %s WHERE id IN (%s)"""%(table, ','.join(map(str, ids))))
+        except:
+            await db.rollback()
+            ret = False
+        else:
+            await db.commit()
+            ret = True
+        finally:
+            await mycursor.close()
+        return ret
+
+
+    @staticmethod
     async def table_exists(table: str):
         table_info = await TeacherDB.fetchall(
             f"SHOW TABLE STATUS LIKE '{table}'"
@@ -225,19 +248,13 @@ class TeacherDB:
     async def get_teacher_classes(member_id):
 
         mycursor, db = await the_database()
-        await mycursor.execute("SELECT language, language_used, day_of_week, time FROM PermanentClasses WHERE teacher_id = %s AND is_active" % (member_id))
+        await mycursor.execute("SELECT id, language, language_used, day_of_week, time FROM PermanentClasses WHERE teacher_id = %s AND is_active" % (member_id))
         perma = await mycursor.fetchall()
-        await mycursor.execute("SELECT language, language_used, date_to_occur, time FROM ExtraClasses WHERE teacher_id = %s AND date_to_occur >= NOW()" % (member_id))
+        await mycursor.execute("SELECT id, language, language_used, date_to_occur, time FROM ExtraClasses WHERE teacher_id = %s AND date_to_occur >= NOW()" % (member_id))
         extra = await mycursor.fetchall()
         await mycursor.close()
 
-        ret = {
-            'permanent':
-                '\n'.join([f'[{l} in {u}]: {d}s at {ampm_time(t)}' for l,u,d,t in perma]) if perma else 'Empty',
-            'extra': #' Empty' # TODO: implement extra classes database
-                '\n'.join([f'[{l} in {u}]: {d.strftime("%A, %d of %B")} at {ampm_time(t)}' for l,u,d,t in extra]) if extra else 'Empty',
-        }
-        return ret
+        return perma, extra
 
 
     @staticmethod
@@ -270,6 +287,8 @@ class TeacherDB:
             f"SELECT DISTINCT(time) FROM PermanentClasses WHERE language = '{language}' AND day_of_week = '{day_of_week}' AND is_active = TRUE"
         )
         #TODO: implement the limitation of 3 classes at the same time on the same day
+
+        # TODO: check when the date_to_occur is today and then limit hours to just the ones in the future!
 
         ret = sorted([x[0] for x in table_info])
         day = list(range(0, 24))
@@ -330,8 +349,3 @@ class TeacherDB:
             VALUES """+langs)
         await db.commit()
         await mycursor.close()
-
-
-def ampm_time(time: int):
-    time = int(time)
-    return f"{time%12 or 12}" + ("AM" if time<12 else "PM")
